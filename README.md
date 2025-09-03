@@ -1,13 +1,14 @@
 # Supplier → TOW Mapper (Cloud DB)
 
-Map supplier codes to internal TOW codes using a **persistent cloud database** (PostgreSQL).  
-Inserts survive Streamlit Cloud restarts.
+Map supplier invoice product codes to internal **TOW** codes using a **persistent PostgreSQL (Neon)** database.  
+All inserts/updates survive Streamlit restarts.
 
-## 1) Run locally
-```bash
-python -m venv .venv
-. .venv/Scripts/activate  # Windows
-# source .venv/bin/activate  # macOS/Linux
+---
+
+## 🔧 Setup (local)
+
+```cmd
+cd C:\Users\mkozi\OneDrive\Desktop\tow-mapper-cloud
+py -m venv .venv
+.venv\Scripts\activate
 pip install -r requirements.txt
-# Set DATABASE_URL (env) or create .streamlit/secrets.toml (see below)
-streamlit run streamlit_app.py

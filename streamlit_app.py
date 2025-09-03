@@ -31,11 +31,11 @@ engine = get_engine()
 # =============================================================================
 def ensure_schema(engine: Engine) -> tuple[str, str, Optional[str]]:
     """
-    Ensure crosswalk table and uniqueness exist.
+    Ensure crosswalk table/constraints exist.
     Returns canonical names used by the app: (supplier_col, tow_col, vendor_col_or_None)
     """
     with engine.begin() as conn:
-        # Base table
+        # Base table (vendor_id NOT NULL; we use 'GLOBAL' as sentinel for blank)
         conn.execute(text("""
         CREATE TABLE IF NOT EXISTS crosswalk (
             tow_code    TEXT NOT NULL,
@@ -43,7 +43,7 @@ def ensure_schema(engine: Engine) -> tuple[str, str, Optional[str]]:
             vendor_id   TEXT NOT NULL
         )
         """))
-        # Add UNIQUE constraint on (vendor_id, supplier_id) idempotently
+        # Unique (vendor_id, supplier_id)
         conn.execute(text("""
         DO $$
         BEGIN
@@ -73,10 +73,8 @@ def exec_sql(sql: str, params: dict | None = None):
 # =============================================================================
 def df_map(df: pd.DataFrame, func):
     """Element-wise map that works on all pandas versions."""
-    # pandas >= 2.1 has DataFrame.map; older versions only have applymap
     return df.map(func) if hasattr(pd.DataFrame, "map") else df.applymap(func)
 
-# =============================================================================
 # =============================================================================
 # PDF table extraction helpers
 # =============================================================================
@@ -91,50 +89,58 @@ def _score_header(cols: list[str]) -> int:
         s += sum(tok in cl for tok in tokens)
     return s
 
-def read_pdf_tables_to_df(file) -> Optional[pd.DataFrame]:
+def extract_pdf_tables(file):
     """
-    Extracts the most relevant table from a PDF invoice and returns it as a DataFrame.
-    Returns None if no usable table is found.
+    Return {"scanned": bool, "tables": list[{page:int, strategy:str, rows:list[list[str]]}]}
+    Each 'rows' contains the raw table including a header row (at some index).
     """
-    dfs: list[pd.DataFrame] = []
+    out = []
     strategies = [
-        {"vertical_strategy": "lines", "horizontal_strategy": "lines",
-         "intersection_x_tolerance": 5, "intersection_y_tolerance": 5},
-        {"vertical_strategy": "text",  "horizontal_strategy": "text",
-         "text_x_tolerance": 2, "text_y_tolerance": 2},
+        ("lines", {"vertical_strategy": "lines", "horizontal_strategy": "lines",
+                   "intersection_x_tolerance": 5, "intersection_y_tolerance": 5}),
+        ("text",  {"vertical_strategy": "text",  "horizontal_strategy": "text",
+                   "text_x_tolerance": 2, "text_y_tolerance": 2}),
     ]
+    file.seek(0)
     with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
-            for ts in strategies:
+        any_text = False
+        for pnum, page in enumerate(pdf.pages, start=1):
+            try:
+                if (page.extract_text() or "").strip():
+                    any_text = True
+            except Exception:
+                pass
+            for name, ts in strategies:
                 try:
                     tables = page.extract_tables(table_settings=ts) or []
                 except Exception:
                     tables = []
                 for t in tables:
-                    df = pd.DataFrame(t)
-                    if df.shape[1] < 2 or df.shape[0] < 2:
-                        continue
-                    header = [str(x or "").strip() for x in df.iloc[0].tolist()]
-                    body = df.iloc[1:].copy()
-                    body.columns = header
-                    body = body.loc[:, ~body.columns.duplicated()]
-                    if body.empty:
-                        continue
-                    for c in body.columns:
-                        body[c] = body[c].astype(str)
-                    dfs.append(body)
+                    norm = []
+                    for row in t:
+                        if row is None:
+                            continue
+                        norm.append([("" if c is None else str(c)).strip() for c in row])
+                    if len(norm) >= 2 and max(len(r) for r in norm) >= 2:
+                        out.append({"page": pnum, "strategy": name, "rows": norm})
+        if not out and not any_text:
+            return {"scanned": True, "tables": []}
+    return {"scanned": False, "tables": out}
 
-    if not dfs:
-        return None
-
-    dfs_scored = sorted(
-        dfs,
-        key=lambda d: (_score_header(list(d.columns)), d.shape[1], d.shape[0]),
-        reverse=True
-    )
-    best = dfs_scored[0].copy()
-    best = df_map(best, lambda v: str(v).strip())
-    return best.reset_index(drop=True)
+def rows_to_dataframe(rows: list[list[str]], header_row_idx: int = 0) -> pd.DataFrame:
+    """Convert raw rows into a DataFrame given which row is the header."""
+    if not rows:
+        return pd.DataFrame()
+    width = max(len(r) for r in rows)
+    padded = [r + [""] * (width - len(r)) for r in rows]
+    header = [str(x or "").strip() for x in padded[header_row_idx]]
+    body = [r for i, r in enumerate(padded) if i != header_row_idx]
+    df = pd.DataFrame(body, columns=header)
+    df = df.loc[:, (df.columns.astype(str).str.strip() != "")]
+    df = df.loc[:, ~df.columns.duplicated()]
+    df = df.fillna("")
+    df = df_map(df, lambda v: str(v).replace("\n", " ").strip())
+    return df
 
 # =============================================================================
 # Crosswalk loader
@@ -163,7 +169,7 @@ with st.expander("How to use", expanded=True):
 1) This app reads/writes a **cloud Postgres** database → data survives restarts.  
 2) Upload a supplier invoice (**Excel / CSV / PDF**), choose **Vendor** and supplier code column, then **Run mapping**.  
 3) Use **Admin** to add/queue mappings and live-search the DB.  
-4) Blank vendor is treated as **GLOBAL**, and duplicates are prevented by a unique `(vendor_id, supplier_id)` constraint.
+4) Blank vendor is treated as **GLOBAL**, duplicates prevented by unique `(vendor_id, supplier_id)`.
 """)
 
 if st.button("♻️ Clear cache & re-run"):
@@ -217,9 +223,44 @@ if invoice_file:
                 on_bad_lines="skip", sep=sep
             )
         elif name.endswith(".pdf"):
-            invoice_df = read_pdf_tables_to_df(invoice_file)
-            if invoice_df is None:
-                st.warning("Couldn’t detect a usable table in this PDF. If it’s a scanned image or non-tabular layout, export it to CSV/Excel or share a sample so we can improve parsing.")
+            result = extract_pdf_tables(invoice_file)
+            if isinstance(result, dict) and result.get("scanned"):
+                st.error("This PDF looks like a scanned image (no text). OCR isn’t enabled yet. Export to CSV/Excel or share a sample and we’ll add OCR.")
+            else:
+                tables = result["tables"]
+                if not tables:
+                    st.warning("I couldn’t detect tabular data in this PDF. Try exporting the invoice to CSV/Excel.")
+                else:
+                    options = [
+                        f"Table #{i+1} | page {t['page']} | {t['strategy']} | {len(t['rows'])}x{max(len(r) for r in t['rows'])}"
+                        for i, t in enumerate(tables)
+                    ]
+                    choice = st.selectbox("Pick a table found in the PDF", options, index=0)
+                    idx = options.index(choice)
+                    chosen = tables[idx]
+
+                    max_header = min(4, len(chosen["rows"]) - 1)
+                    header_row_idx = st.number_input(
+                        "Which row is the header?", min_value=0, max_value=max_header, value=0, step=1
+                    )
+
+                    invoice_df = rows_to_dataframe(chosen["rows"], header_row_idx)
+
+                    def all_tables_to_excel_bytes():
+                        bio = BytesIO()
+                        with pd.ExcelWriter(bio, engine="xlsxwriter") as w:
+                            for i, t in enumerate(tables):
+                                df_i = rows_to_dataframe(t["rows"], header_row_idx=0)
+                                sheet = f"p{t['page']}_{t['strategy']}_{i+1}"[:31]
+                                df_i.to_excel(w, index=False, sheet_name=sheet)
+                        return bio.getvalue()
+
+                    st.download_button(
+                        "Download ALL extracted PDF tables (Excel)",
+                        data=all_tables_to_excel_bytes(),
+                        file_name="pdf_tables.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
         else:
             st.error("Unsupported file type.")
             invoice_df = None
@@ -299,7 +340,7 @@ else:
 # Admin helpers (upsert/queue)
 # =============================================================================
 def upsert_mapping(vendor_id: str | None, supplier_id: str, tow_code: str) -> None:
-    supplier_id = str(supplier_id or "").strip().upper()
+    supplier_id = str(supplier_id or "").strip().str.upper() if hasattr(supplier_id, "strip") else str(supplier_id).strip().upper()
     tow_code = str(tow_code or "").strip()
     vendor_id = (str(vendor_id or "GLOBAL").strip().upper())  # GLOBAL sentinel for blank vendor
 
