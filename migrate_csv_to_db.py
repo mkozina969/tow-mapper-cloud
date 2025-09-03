@@ -28,11 +28,12 @@ with engine.begin() as conn:
 
 def read_csv(p: Path) -> pd.DataFrame:
     for enc in ("utf-8","latin-1"):
-        try:
-            return pd.read_csv(p, dtype=str, encoding=enc, on_bad_lines="skip")
-        except Exception:
-            continue
-    raise RuntimeError("Cannot read CSV")
+        for sep in (",",";"):
+            try:
+                return pd.read_csv(p, dtype=str, encoding=enc, sep=sep, on_bad_lines="skip")
+            except Exception:
+                continue
+    raise RuntimeError("Cannot read CSV with utf-8/latin-1 and ,/; separators")
 
 df = read_csv(Path(args.csv)).fillna("")
 cols = {c.lower().strip(): c for c in df.columns}
