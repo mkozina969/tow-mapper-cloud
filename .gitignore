@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Local data/exports (do not commit customer data)
+*.csv
+*.xlsx
+
+# Streamlit
+.streamlit/secrets.toml
