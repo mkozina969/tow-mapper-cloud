@@ -81,7 +81,11 @@ if not tow_col or not sup_col:
 out = pd.DataFrame({
     "tow_code": df[tow_col].astype(str).str.strip(),
     "supplier_id": df[sup_col].astype(str).str.strip().str.upper(),
-    "vendor_id": (df[ven_col].astype(str).str.strip().str.upper() if ven_col else "")
+    # DEFAULT blanks/missing to GLOBAL
+    "vendor_id": (
+        df[ven_col].astype(str).str.strip().str.upper().replace({"": "GLOBAL"})
+        if ven_col else "GLOBAL"
+    )
 })
 
 # Normalize blanks → NULL for vendor_id

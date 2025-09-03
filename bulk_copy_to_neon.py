@@ -100,13 +100,14 @@ try:
     # Normalize + upsert
     cur.execute("""
         INSERT INTO crosswalk (tow_code, supplier_id, vendor_id)
-        SELECT
-            trim(tow_code),
-            upper(trim(supplier_id)),
-            NULLIF(upper(trim(vendor_id)), '')
-        FROM crosswalk_stage
-        ON CONFLICT (vendor_id, supplier_id)
-        DO UPDATE SET tow_code = EXCLUDED.tow_code
+SELECT
+  trim(tow_code),
+  upper(trim(supplier_id)),
+  COALESCE(NULLIF(upper(trim(vendor_id)), ''), 'GLOBAL')  -- <-- force GLOBAL for blank/NULL
+FROM crosswalk_stage
+ON CONFLICT (vendor_id, supplier_id)
+DO UPDATE SET tow_code = EXCLUDED.tow_code;
+
     """)
 
     # cleanup

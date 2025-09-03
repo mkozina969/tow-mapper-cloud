@@ -195,8 +195,9 @@ else:
 # =============================================================================
 def upsert_mapping(vendor_id: str | None, supplier_id: str, tow_code: str) -> None:
     supplier_id = str(supplier_id or "").strip().upper()
-    tow_code = str(tow_code or "").strip()
-    vendor_id = (str(vendor_id or "").strip().upper()) or None  # allow null vendor
+    tow_code    = str(tow_code or "").strip()
+    vendor_id   = (str(vendor_id or "GLOBAL").strip().upper())  # <-- was None; now default to GLOBAL
+    ...
 
     sql = """
     INSERT INTO crosswalk (tow_code, supplier_id, vendor_id)
