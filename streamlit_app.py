@@ -379,7 +379,7 @@ def apply_pending(file_path: str = "updates.csv") -> int:
 # Admin (PIN-gated) + Live search
 # =============================================================================
 with st.expander("🔐 Admin • Add / Queue / Apply Mappings • Live search", expanded=False):
-    default_pin = os.environ.get("ST_ADMIN_PIN") or st.secrets.get("admin_pin", "")
+    default_pin = os.environ.get("ST_ADMIN_PIN") or st.secrets.get("admin_pin", "0000")
     col_pin, col_btn = st.columns([3,1])
     with col_pin:
         pin = st.text_input("Admin PIN", type="password", placeholder="Enter PIN to enable admin actions")
