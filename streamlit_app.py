@@ -340,9 +340,10 @@ else:
 # Admin helpers (upsert/queue)
 # =============================================================================
 def upsert_mapping(vendor_id: str | None, supplier_id: str, tow_code: str) -> None:
-    supplier_id = str(supplier_id or "").strip().str.upper() if hasattr(supplier_id, "strip") else str(supplier_id).strip().upper()
-    tow_code = str(tow_code or "").strip()
-    vendor_id = (str(vendor_id or "GLOBAL").strip().upper())  # GLOBAL sentinel for blank vendor
+    # normalize inputs
+    supplier_id = str(supplier_id or "").strip().upper()
+    tow_code    = str(tow_code or "").strip()
+    vendor_id   = str(vendor_id or "GLOBAL").strip().upper()  # GLOBAL sentinel for blank vendor
 
     sql = """
     INSERT INTO crosswalk (tow_code, supplier_id, vendor_id)
@@ -350,6 +351,9 @@ def upsert_mapping(vendor_id: str | None, supplier_id: str, tow_code: str) -> No
     ON CONFLICT (vendor_id, supplier_id)
     DO UPDATE SET tow_code = EXCLUDED.tow_code
     """
+    with engine.begin() as conn:
+        conn.execute(text(sql), {"tow": tow_code, "sup": supplier_id, "ven": vendor_id})
+   """
     with engine.begin() as conn:
         conn.execute(text(sql), {"tow": tow_code, "sup": supplier_id, "ven": vendor_id})
 
