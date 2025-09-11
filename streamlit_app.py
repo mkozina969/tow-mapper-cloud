@@ -43,7 +43,7 @@ def ensure_schema(engine: Engine) -> tuple[str, str, Optional[str]]:
             vendor_id   TEXT NOT NULL
         )
         """))
-        # Unique (vendor_id, supplier_id) — idempotent via DO block
+        # Unique (vendor_id, supplier_id)
         conn.execute(text("""
         DO $$
         BEGIN
@@ -340,10 +340,9 @@ else:
 # Admin helpers (upsert/queue)
 # =============================================================================
 def upsert_mapping(vendor_id: str | None, supplier_id: str, tow_code: str) -> None:
-    # normalize (FIX: use .upper() on Python strings, not pandas .str.upper)
-    supplier_id = str(supplier_id or "").strip().upper()
-    tow_code    = str(tow_code or "").strip()
-    vendor_id   = str(vendor_id or "GLOBAL").strip().upper()  # GLOBAL sentinel for blank vendor
+    supplier_id = str(supplier_id or "").strip().str.upper() if hasattr(supplier_id, "strip") else str(supplier_id).strip().upper()
+    tow_code = str(tow_code or "").strip()
+    vendor_id = (str(vendor_id or "GLOBAL").strip().upper())  # GLOBAL sentinel for blank vendor
 
     sql = """
     INSERT INTO crosswalk (tow_code, supplier_id, vendor_id)
