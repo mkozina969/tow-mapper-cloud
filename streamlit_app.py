@@ -21,7 +21,6 @@ from sqlalchemy.engine import Engine
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Cloud DB)", layout="wide")
 
-
 # =============================================================================
 # Helpers
 # =============================================================================
@@ -93,10 +92,47 @@ def _load_vendor_names() -> Dict[str, str]:
         df = _read_sql("SELECT vendor_id, vendor_name FROM vendors")
     except Exception:
         return {}
-    df["vendor_id"] = df["vendor_id"].astype(str).strip().str.upper()
-    df["vendor_name"] = df["vendor_name"].astype(str).fillna("").str.strip()
+    df["vendor_id"] = df["vendor_id"].astype(str).str.strip().str.upper()
+    df["vendor_name"] = df["vendor_name"].fillna("").astype(str).str.strip()
     return dict(zip(df["vendor_id"], df["vendor_name"]))
 
+
+@st.cache_data(show_spinner=False)
+def _columns_editor(default_order: List[str]) -> List[str]:
+    """
+    Show a robust column chooser that works across Streamlit versions.
+    Returns the ordered list of columns to export.
+    """
+    cfg_default = pd.DataFrame({
+        "column": default_order,
+        "include": True,
+        "order": list(range(1, len(default_order) + 1)),
+    })
+
+    st.markdown("### Choose export columns & order")
+
+    _editor_kwargs = dict(hide_index=True, use_container_width=True)
+
+    try:
+        cfg = st.data_editor(
+            cfg_default,
+            **_editor_kwargs,
+            column_config={
+                "column": st.column_config.TextColumn("Column", disabled=True),
+                "include": st.column_config.CheckboxColumn("Include"),
+                "order": st.column_config.NumberColumn("Order", min_value=1, step=1),
+            },
+            help="Označi kolone i dodijeli redoslijed (1..N).",
+        )
+    except TypeError:
+        st.info("Using a basic column editor (advanced column_config not supported on this deployment).")
+        cfg = st.data_editor(cfg_default, **_editor_kwargs)
+
+    cfg["order"] = pd.to_numeric(cfg["order"], errors="coerce")
+    cfg = cfg.dropna(subset=["order"])
+    cfg = cfg[cfg["include"]].sort_values(["order", "column"], kind="stable")
+    export_cols = cfg["column"].tolist()
+    return export_cols
 
 # =============================================================================
 # Header
@@ -117,9 +153,8 @@ try:
 except Exception as e:
     st.warning(f"Ne mogu pročitati broj redaka crosswalka: {e}")
 
-
 # =============================================================================
-# Vendor select: filter + refresh (dinamički iz baze) (+ vendor names)
+# Vendor select: filter + refresh (+ vendor names)
 # =============================================================================
 vendors_map = _load_vendor_names()
 
@@ -150,7 +185,6 @@ vendor = st.selectbox(
     label_visibility="collapsed",
 )
 st.caption("Ostavi prazno za GLOBAL mapiranja (vrijedi za sve vendore).")
-
 
 # =============================================================================
 # Upload invoice
@@ -197,9 +231,8 @@ if uploaded is not None:
         st.error(f"Greška pri čitanju datoteke: {e}")
         preview_df = None
 
-
 # =============================================================================
-# 2) Map to TOW (rezultat perzistira i može se zaključati)
+# 2) Map to TOW
 # =============================================================================
 st.subheader("2) Map to TOW")
 
@@ -268,7 +301,7 @@ if st.session_state.get("mapped_ready", False):
         st.dataframe(unmatched.head(200), use_container_width=True)
 
     # -----------------------------------------------------------------------------
-    # 2a) OLD / SIMPLE EXPORT (unchanged)
+    # 2a) OLD / SIMPLE EXPORT
     # -----------------------------------------------------------------------------
     st.download_button(
         "Download Excel (Matched + Unmatched)",
@@ -279,12 +312,10 @@ if st.session_state.get("mapped_ready", False):
     )
 
     # -----------------------------------------------------------------------------
-    # 2b) NEW: Add extra columns (Invoice, Item, vendor_id, optional date)
-    #      + Choose columns & custom ORDER UI
+    # 2b) Custom export (add Invoice/Item/vendor_id/date + choose columns & order)
     # -----------------------------------------------------------------------------
     st.subheader("3) Custom export (add columns + choose order)")
 
-    # Defaults
     invoice_label = "Invoice"
     item_label = "Item"
     vendor_to_stamp = (vendor if vendor != "" else "GLOBAL")
@@ -318,37 +349,16 @@ if st.session_state.get("mapped_ready", False):
     matched_en = _enrich(matched)
     unmatched_en = _enrich(unmatched)
 
-    # Column selection + ORDER editor
+    # Build preferred order
     all_cols = list(dict.fromkeys(list(matched_en.columns) + list(unmatched_en.columns)))
     preferred_first = [c for c in ["Invoice", "Item", "date", "vendor_id", "tow"] if c in all_cols]
     rest = [c for c in all_cols if c not in preferred_first]
     default_order = preferred_first + rest
 
-    cfg_default = pd.DataFrame({
-        "column": default_order,
-        "include": True,
-        "order": list(range(1, len(default_order) + 1)),
-    })
-
-    st.markdown("### Choose export columns & order")
-    cfg = st.data_editor(
-        cfg_default,
-        key="export_cfg",
-        hide_index=True,
-        use_container_width=True,
-        num_rows="fixed",
-        column_config={
-            "column": st.column_config.TextColumn("Column", disabled=True),
-            "include": st.column_config.CheckboxColumn("Include"),
-            "order": st.column_config.NumberColumn("Order", min_value=1, step=1),
-        },
-        help="Označi kolone i dodijeli redoslijed (1..N)."
-    )
-
-    cfg["order"] = pd.to_numeric(cfg["order"], errors="coerce")
-    cfg = cfg.dropna(subset=["order"])
-    cfg = cfg[cfg["include"]].sort_values(["order", "column"], kind="stable")
-    export_cols = cfg["column"].tolist()
+    # Get ordered column selection
+    export_cols = _columns_editor(default_order)
+    if not export_cols:
+        export_cols = default_order
 
     def _apply_selection(df: pd.DataFrame) -> pd.DataFrame:
         cols_in_df = [c for c in export_cols if c in df.columns]
@@ -359,6 +369,7 @@ if st.session_state.get("mapped_ready", False):
 
     with st.expander("Preview (custom): Matched", expanded=False):
         st.dataframe(matched_out.head(200), use_container_width=True)
+
     with st.expander("Preview (custom): Unmatched", expanded=False):
         st.dataframe(unmatched_out.head(200), use_container_width=True)
 
@@ -371,7 +382,6 @@ if st.session_state.get("mapped_ready", False):
     )
 else:
     st.info("Učitaj datoteku i pokreni mapping.")
-
 
 # =============================================================================
 # Admin (PIN -> unlock) + Queue/Direct + Live search (NEON DB)
