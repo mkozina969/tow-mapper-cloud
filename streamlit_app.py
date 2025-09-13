@@ -97,7 +97,7 @@ def _load_vendor_names() -> Dict[str, str]:
     return dict(zip(df["vendor_id"], df["vendor_name"]))
 
 
-# REMOVE the @st.cache_data decorator here – widgets can't be cached
+# NO @st.cache_data decorator here – widgets can't be cached
 def _columns_editor(default_order: List[str]) -> List[str]:
     """
     Show a robust column chooser that works across Streamlit versions.
