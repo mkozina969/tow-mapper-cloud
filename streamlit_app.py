@@ -97,7 +97,7 @@ def _load_vendor_names() -> Dict[str, str]:
     return dict(zip(df["vendor_id"], df["vendor_name"]))
 
 
-@st.cache_data(show_spinner=False)
+# REMOVE the @st.cache_data decorator here – widgets can't be cached
 def _columns_editor(default_order: List[str]) -> List[str]:
     """
     Show a robust column chooser that works across Streamlit versions.
@@ -116,6 +116,7 @@ def _columns_editor(default_order: List[str]) -> List[str]:
     try:
         cfg = st.data_editor(
             cfg_default,
+            key="export_editor",                           # 👈 stable widget key
             **_editor_kwargs,
             column_config={
                 "column": st.column_config.TextColumn("Column", disabled=True),
@@ -126,7 +127,7 @@ def _columns_editor(default_order: List[str]) -> List[str]:
         )
     except TypeError:
         st.info("Using a basic column editor (advanced column_config not supported on this deployment).")
-        cfg = st.data_editor(cfg_default, **_editor_kwargs)
+        cfg = st.data_editor(cfg_default, key="export_editor_basic", **_editor_kwargs)
 
     cfg["order"] = pd.to_numeric(cfg["order"], errors="coerce")
     cfg = cfg.dropna(subset=["order"])
