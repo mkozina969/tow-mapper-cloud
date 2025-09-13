@@ -22,41 +22,14 @@ from sqlalchemy.engine import Engine
 st.set_page_config(page_title="Supplier → TOW Mapper (Cloud DB)", layout="wide")
 
 # =============================================================================
-# Helpers
+# Helpers (PURE DATA ONLY; cache allowed)
 # =============================================================================
-def _excel_bytes(dfs: Dict[str, pd.DataFrame]) -> bytes:
-    bio = BytesIO()
-    with pd.ExcelWriter(bio, engine="xlsxwriter") as w:
-        for sheet, df in dfs.items():
-            if isinstance(df, pd.DataFrame) and not df.empty:
-                df.reset_index(drop=True).to_excel(w, index=False, sheet_name=sheet)
-    return bio.getvalue()
-
-
-def _engine() -> Engine:
-    db_url = os.getenv("DATABASE_URL") or st.secrets.get("DATABASE_URL", "")
-    if not db_url:
-        st.error("DATABASE_URL nije postavljen (Secrets ili env).")
-        st.stop()
-    return create_engine(db_url, pool_pre_ping=True)
-
-
-engine = _engine()
-
-
-def _read_sql(query: str, params: dict | None = None) -> pd.DataFrame:
-    with engine.connect() as conn:
-        return pd.read_sql(text(query), conn, params=params or {})
-
-
 @st.cache_data(show_spinner=False)
 def _crosswalk_count() -> int:
     return int(_read_sql("SELECT COUNT(*) AS n FROM crosswalk").iloc[0]["n"])
 
-
 @st.cache_data(show_spinner=False)
 def _fetch_vendors(filter_q: str = "", limit: int = 500) -> List[str]:
-    """Return vendor list with '' (GLOBAL) first; no LIKE when filter is blank."""
     filter_q = (filter_q or "").strip()
     if filter_q:
         q = """
@@ -84,10 +57,8 @@ def _fetch_vendors(filter_q: str = "", limit: int = 500) -> List[str]:
         vals = [""] + [v for v in vals if v != ""]
     return vals
 
-
 @st.cache_data(show_spinner=False)
 def _load_vendor_names() -> Dict[str, str]:
-    """Return {vendor_id -> vendor_name} from vendors table (if exists)."""
     try:
         df = _read_sql("SELECT vendor_id, vendor_name FROM vendors")
     except Exception:
@@ -96,12 +67,33 @@ def _load_vendor_names() -> Dict[str, str]:
     df["vendor_name"] = df["vendor_name"].fillna("").astype(str).str.strip()
     return dict(zip(df["vendor_id"], df["vendor_name"]))
 
+def _excel_bytes(dfs: Dict[str, pd.DataFrame]) -> bytes:
+    bio = BytesIO()
+    with pd.ExcelWriter(bio, engine="xlsxwriter") as w:
+        for sheet, df in dfs.items():
+            if isinstance(df, pd.DataFrame) and not df.empty:
+                df.reset_index(drop=True).to_excel(w, index=False, sheet_name=sheet)
+    return bio.getvalue()
 
-# NO @st.cache_data decorator here – widgets can't be cached
+def _engine() -> Engine:
+    db_url = os.getenv("DATABASE_URL") or st.secrets.get("DATABASE_URL", "")
+    if not db_url:
+        st.error("DATABASE_URL nije postavljen (Secrets ili env).")
+        st.stop()
+    return create_engine(db_url, pool_pre_ping=True)
+
+engine = _engine()
+
+def _read_sql(query: str, params: dict | None = None) -> pd.DataFrame:
+    with engine.connect() as conn:
+        return pd.read_sql(text(query), conn, params=params or {})
+
+# =============================================================================
+# Widgets (NO CACHE DECORATORS ALLOWED)
+# =============================================================================
 def _columns_editor(default_order: List[str]) -> List[str]:
     """
-    Show a robust column chooser that works across Streamlit versions.
-    Returns the ordered list of columns to export.
+    Widget: Choose export columns and order. NO @st.cache_data here!
     """
     cfg_default = pd.DataFrame({
         "column": default_order,
@@ -110,13 +102,12 @@ def _columns_editor(default_order: List[str]) -> List[str]:
     })
 
     st.markdown("### Choose export columns & order")
-
     _editor_kwargs = dict(hide_index=True, use_container_width=True)
 
     try:
         cfg = st.data_editor(
             cfg_default,
-            key="export_editor",                           # 👈 stable widget key
+            key="export_editor",
             **_editor_kwargs,
             column_config={
                 "column": st.column_config.TextColumn("Column", disabled=True),
@@ -136,8 +127,9 @@ def _columns_editor(default_order: List[str]) -> List[str]:
     return export_cols
 
 # =============================================================================
-# Header
+# Main Script Starts Here (NO CACHING)
 # =============================================================================
+
 st.title("Supplier → TOW Mapper (Cloud DB)")
 with st.expander("How to use", expanded=False):
     st.markdown("""
@@ -154,9 +146,6 @@ try:
 except Exception as e:
     st.warning(f"Ne mogu pročitati broj redaka crosswalka: {e}")
 
-# =============================================================================
-# Vendor select: filter + refresh (+ vendor names)
-# =============================================================================
 vendors_map = _load_vendor_names()
 
 st.markdown("**Vendor**")
@@ -289,7 +278,7 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
             st.error(f"Mapping failed: {e}")
             st.session_state["mapped_ready"] = False
 
-# Show result if available
+# Show result if available (NO cached function context here)
 if st.session_state.get("mapped_ready", False):
     matched = st.session_state["matched"]
     unmatched = st.session_state["unmatched"]
@@ -356,7 +345,7 @@ if st.session_state.get("mapped_ready", False):
     rest = [c for c in all_cols if c not in preferred_first]
     default_order = preferred_first + rest
 
-    # Get ordered column selection
+    # NO cached function context for export_cols!
     export_cols = _columns_editor(default_order)
     if not export_cols:
         export_cols = default_order
