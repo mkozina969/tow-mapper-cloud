@@ -19,6 +19,8 @@ except Exception:
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
+import streamlit_sortables
+
 st.set_page_config(page_title="Supplier → TOW Mapper (Cloud DB)", layout="wide")
 
 # =============================================================================
@@ -89,42 +91,74 @@ def _read_sql(query: str, params: dict | None = None) -> pd.DataFrame:
         return pd.read_sql(text(query), conn, params=params or {})
 
 # =============================================================================
-# Widgets (NO CACHE DECORATORS ALLOWED)
+# Drag-and-drop Columns Editor with "Apply" flag (streamlit-sortables)
 # =============================================================================
-def _columns_editor(default_order: List[str]) -> List[str]:
-    """
-    Widget: Choose export columns and order. NO @st.cache_data here!
-    """
-    cfg_default = pd.DataFrame({
-        "column": default_order,
-        "include": True,
-        "order": list(range(1, len(default_order) + 1)),
-    })
+def columns_sortable_with_apply(preferred_order: List[str]) -> Optional[List[str]]:
+    st.markdown("### Choose export columns & order (drag to reorder below)")
 
-    st.markdown("### Choose export columns & order")
-    _editor_kwargs = dict(hide_index=True, use_container_width=True)
+    def filter_to_options(cols, options):
+        return [c for c in cols if c in options]
 
-    try:
-        cfg = st.data_editor(
-            cfg_default,
-            key="export_editor",
-            **_editor_kwargs,
-            column_config={
-                "column": st.column_config.TextColumn("Column", disabled=True),
-                "include": st.column_config.CheckboxColumn("Include"),
-                "order": st.column_config.NumberColumn("Order", min_value=1, step=1),
-            },
-            help="Označi kolone i dodijeli redoslijed (1..N).",
-        )
-    except TypeError:
-        st.info("Using a basic column editor (advanced column_config not supported on this deployment).")
-        cfg = st.data_editor(cfg_default, key="export_editor_basic", **_editor_kwargs)
+    if not preferred_order:
+        st.warning("No columns available for export/reordering.")
+        return None
 
-    cfg["order"] = pd.to_numeric(cfg["order"], errors="coerce")
-    cfg = cfg.dropna(subset=["order"])
-    cfg = cfg[cfg["include"]].sort_values(["order", "column"], kind="stable")
-    export_cols = cfg["column"].tolist()
-    return export_cols
+    # -- Session state initialization and filtering --
+    if "pending_export_cols" not in st.session_state or not isinstance(st.session_state["pending_export_cols"], list):
+        st.session_state["pending_export_cols"] = preferred_order.copy()
+    else:
+        st.session_state["pending_export_cols"] = filter_to_options(st.session_state["pending_export_cols"], preferred_order)
+        if not st.session_state["pending_export_cols"]:
+            st.session_state["pending_export_cols"] = preferred_order.copy()
+
+    if "export_cols" not in st.session_state or not isinstance(st.session_state["export_cols"], list):
+        st.session_state["export_cols"] = preferred_order.copy()
+    else:
+        st.session_state["export_cols"] = filter_to_options(st.session_state["export_cols"], preferred_order)
+        if not st.session_state["export_cols"]:
+            st.session_state["export_cols"] = preferred_order.copy()
+
+    if "columns_applied" not in st.session_state:
+        st.session_state["columns_applied"] = True
+
+    sorted_cols = streamlit_sortables.sort_items(
+        st.session_state["pending_export_cols"],
+        direction="horizontal",
+        key="sortable_export_cols"
+    )
+
+    all_options = preferred_order.copy()
+    default_selected = filter_to_options(sorted_cols, all_options)
+    selected = st.multiselect(
+        "Add/remove columns (order preserved above):",
+        options=all_options,
+        default=default_selected,
+        key="multiselect_export_cols"
+    )
+
+    if selected != st.session_state["pending_export_cols"]:
+        st.session_state["columns_applied"] = False
+
+    sorted_selected = [c for c in sorted_cols if c in selected]
+    st.session_state["pending_export_cols"] = sorted_selected
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        if st.button("Select All"):
+            st.session_state["pending_export_cols"] = all_options.copy()
+            st.session_state["columns_applied"] = False
+        if st.button("Deselect All"):
+            st.session_state["pending_export_cols"] = []
+            st.session_state["columns_applied"] = False
+    with col2:
+        if st.button("Apply changes"):
+            st.session_state["export_cols"] = st.session_state["pending_export_cols"].copy()
+            st.session_state["columns_applied"] = True
+
+    if st.session_state["columns_applied"]:
+        return st.session_state["export_cols"]
+    else:
+        return None
 
 # =============================================================================
 # Main Script Starts Here (NO CACHING)
@@ -149,14 +183,9 @@ except Exception as e:
 vendors_map = _load_vendor_names()
 
 st.markdown("**Vendor**")
-cc1, cc2 = st.columns([3, 1])
-with cc1:
-    vendor_filter = st.text_input("Filter vendors (substring / prefix)", value="", key="vendor_filter")
-with cc2:
-    if st.button("Refresh list", key="btn_refresh_vendors"):
-        st.cache_data.clear()
-
+vendor_filter = st.text_input("Filter vendors (substring / prefix)", value="", key="vendor_filter")
 vendors = _fetch_vendors(vendor_filter)
+
 prev_vendor = st.session_state.get("vendor_select", "")
 if prev_vendor not in vendors:
     prev_vendor = ""  # GLOBAL
@@ -302,19 +331,20 @@ if st.session_state.get("mapped_ready", False):
     )
 
     # -----------------------------------------------------------------------------
-    # 2b) Custom export (add Invoice/Item/vendor_id/date + choose columns & order)
+    # 2b) Custom export (add Invoice/Item/vendor_id/date/location + choose columns & order)
     # -----------------------------------------------------------------------------
     st.subheader("3) Custom export (add columns + choose order)")
 
     invoice_label = "Invoice"
     item_label = "Item"
     vendor_to_stamp = (vendor if vendor != "" else "GLOBAL")
+    location_text = "H00"
     all_cols_now = list(dict.fromkeys(list(matched.columns) + list(unmatched.columns)))
     date_choice = "(none)"
     date_manual = ""
 
-    with st.expander("Optional: dodatne kolone (Invoice, Item, vendor_id, date)", expanded=True):
-        cA, cB, cC, cD = st.columns([1, 1, 1.3, 1.3])
+    with st.expander("Optional: dodatne kolone (Invoice, Item, vendor_id, location, date)", expanded=True):
+        cA, cB, cC, cD, cE = st.columns([1, 1, 1.2, 1.2, 1.2])
         with cA:
             invoice_label = st.text_input("Constant value for 'Invoice'", value="Invoice")
         with cB:
@@ -325,6 +355,8 @@ if st.session_state.get("mapped_ready", False):
                 value=(vendor if vendor != "" else "GLOBAL")
             ).strip().upper() or "GLOBAL"
         with cD:
+            location_text = st.text_input("Constant value for 'Location'", value="H00")
+        with cE:
             date_manual = st.text_input("Manual Date (YYYY-MM-DD)", value="")
 
         date_options = ["(none)"] + all_cols_now
@@ -335,7 +367,7 @@ if st.session_state.get("mapped_ready", False):
         df2["Invoice"] = invoice_label
         df2["Item"] = item_label
         df2["vendor_id"] = vendor_to_stamp
-        # Use manual date if provided, otherwise use selected column
+        df2["Location"] = location_text
         if date_manual:
             df2["date"] = date_manual
         elif date_choice != "(none)" and date_choice in df2.columns:
@@ -345,37 +377,56 @@ if st.session_state.get("mapped_ready", False):
     matched_en = _enrich(matched)
     unmatched_en = _enrich(unmatched)
 
-    # Build preferred order
+    if "Location" not in matched_en.columns:
+        matched_en["Location"] = location_text
+    if "Location" not in unmatched_en.columns:
+        unmatched_en["Location"] = location_text
+
+    for df in [matched_en, unmatched_en]:
+        if "date" not in df.columns:
+            df["date"] = date_manual if date_manual else ""
+
     all_cols = list(dict.fromkeys(list(matched_en.columns) + list(unmatched_en.columns)))
-    preferred_first = [c for c in ["Invoice", "Item", "date", "vendor_id", "tow"] if c in all_cols]
+    if "date" not in all_cols:
+        all_cols.append("date")
+    preferred_first = [c for c in ["Invoice", "Item", "Location", "date", "vendor_id", "tow"] if c in all_cols]
     rest = [c for c in all_cols if c not in preferred_first]
     default_order = preferred_first + rest
 
-    # ==== COLUMN EDITOR (order & selection) ====
-    export_cols = _columns_editor(default_order)
-    if not export_cols:
-        export_cols = default_order
+    # --- RESET EXPORT COLUMN SESSION STATE TO CURRENT FILE COLUMNS ---
+    st.session_state["pending_export_cols"] = default_order.copy()
+    st.session_state["export_cols"] = default_order.copy()
+    st.session_state["columns_applied"] = True
 
-    def _apply_selection(df: pd.DataFrame) -> pd.DataFrame:
-        cols_in_df = [c for c in export_cols if c in df.columns]
-        return df[cols_in_df] if cols_in_df else df
+    if default_order:
+        export_cols = columns_sortable_with_apply(default_order)
+    else:
+        st.warning("No columns available for export/reordering.")
+        export_cols = None
 
-    matched_out = _apply_selection(matched_en)
-    unmatched_out = _apply_selection(unmatched_en)
+    if export_cols:
+        def _apply_selection(df: pd.DataFrame) -> pd.DataFrame:
+            cols_in_df = [c for c in export_cols if c in df.columns]
+            return df[cols_in_df] if cols_in_df else df
 
-    with st.expander("Preview (custom): Matched", expanded=False):
-        st.dataframe(matched_out.head(200), use_container_width=True)
+        matched_out = _apply_selection(matched_en)
+        unmatched_out = _apply_selection(unmatched_en)
 
-    with st.expander("Preview (custom): Unmatched", expanded=False):
-        st.dataframe(unmatched_out.head(200), use_container_width=True)
+        with st.expander("Preview (custom): Matched", expanded=False):
+            st.dataframe(matched_out.head(200), use_container_width=True)
 
-    st.download_button(
-        "⬇️ Download Excel (custom columns & order)",
-        data=_excel_bytes({"Matched": matched_out, "Unmatched": unmatched_out}),
-        file_name="mapping_custom.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="dl_both_custom",
-    )
+        with st.expander("Preview (custom): Unmatched", expanded=False):
+            st.dataframe(unmatched_out.head(200), use_container_width=True)
+
+        st.download_button(
+            "⬇️ Download Excel (custom columns & order)",
+            data=_excel_bytes({"Matched": matched_out, "Unmatched": unmatched_out}),
+            file_name="mapping_custom.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="dl_both_custom",
+        )
+    else:
+        st.info("Select columns, drag to reorder, and press 'Apply changes' to update preview/export.")
 else:
     st.info("Učitaj datoteku i pokreni mapping.")
 
@@ -385,7 +436,6 @@ else:
 st.divider()
 st.subheader("Admin - Add / Queue / Apply Mappings - Live search")
 
-# --- PIN gate (ENV/Secrets; trim) ---
 expected_pin = os.getenv("ADMIN_PIN", st.secrets.get("ADMIN_PIN", ""))
 expected_pin = str(expected_pin).strip()
 
@@ -404,7 +454,6 @@ if not st.session_state.get("admin_unlocked", False):
 
 st.success("Admin unlocked.")
 
-# ============== ADD A SINGLE MAPPING ==============
 st.markdown("### Add a single mapping")
 
 with st.form("admin_add_single"):
@@ -455,7 +504,6 @@ with st.form("admin_add_single"):
                 except Exception as e:
                     st.error(f"DB error: {e}")
 
-# --- Queue CSV (download/apply/clear) ---
 st.markdown("### Apply queued CSV to DB")
 
 if "updates_df" in st.session_state and not st.session_state["updates_df"].empty:
@@ -497,7 +545,6 @@ if "updates_df" in st.session_state and not st.session_state["updates_df"].empty
 else:
     st.caption("No updates.csv yet.")
 
-# ======================== LIVE SEARCH ========================
 st.markdown("### Live search / inspect")
 
 c_f1, c_f2, c_f3 = st.columns([2.2, 2.2, 1.2])
