@@ -436,7 +436,7 @@ else:
 st.divider()
 st.subheader("Admin - Add / Queue / Apply Mappings - Live search")
 
-expected_pin = os.getenv("ADMIN_PIN", st.secrets.get("ADMIN_PIN", ""))
+expected_pin = os.getenv("ADMIN_PIN", st.secrets.get("ADMIN_PIN", "0001"))
 expected_pin = str(expected_pin).strip()
 
 c_pin1, c_pin2, c_pin3 = st.columns([5, 1, 2])
