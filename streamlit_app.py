@@ -291,6 +291,10 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
     st.caption("UoM conversion uses active rules for the selected vendor. Upload the original supplier invoice.")
     quantity_col = st.selectbox("Quantity column", ["(select)"] + list(preview_df.columns))
     price_col = st.selectbox("Unit price column", ["(select)"] + list(preview_df.columns))
+    mapping_columns = (supplier_col, quantity_col, price_col)
+    if st.session_state.get("uom_mapping_columns") != mapping_columns:
+        st.session_state["mapped_ready"] = False
+        st.session_state["uom_mapping_columns"] = mapping_columns
 
     if st.button("Run mapping", type="primary", key="btn_run_mapping"):
         st.session_state["mapped_ready"] = False

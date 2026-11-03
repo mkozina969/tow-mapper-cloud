@@ -7,9 +7,12 @@ from sqlalchemy import text
 def render_uom_admin(engine, vendor):
     with st.expander("UoM Conversion — manage packaging rules"):
         if st.button("Initialize UoM table"):
-            with engine.begin() as conn:
-                conn.execute(text(Path(__file__).with_name("migrations").joinpath("001_item_uom_conversion.sql").read_text()))
-            st.success("Conversion table ready.")
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(Path(__file__).with_name("migrations").joinpath("001_item_uom_conversion.sql").read_text()))
+                st.success("Conversion table ready.")
+            except Exception as exc:
+                st.error(f"Unable to initialize conversion table: {exc}")
         with st.form("uom_rule"):
             rule_vendor = st.text_input("Conversion vendor_id", value=vendor).strip()
             supplier = st.text_input("Conversion supplier_id").strip()
