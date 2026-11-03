@@ -171,68 +171,72 @@ def columns_sortable_with_apply(preferred_order: List[str]) -> Optional[List[str
 st.title("Supplier → TOW Mapper (Developer DB)")
 with st.expander("How to use", expanded=False):
     st.markdown("""
-**1. Odaberi dobavljača i učitaj datoteku**
+**1. Select the vendor and upload your file**
 
-Odaberi odgovarajući **Vendor**, zatim učitaj izvorni račun ili otpremnicu u formatu
-Excel, CSV ili PDF. GLOBAL koristi samo za globalna mapiranja. Šifre artikala i
-paleta u Excelu čuvaj kao tekst kako bi se sačuvale vodeće nule.
+Select the correct **Vendor**, then upload the original supplier invoice or packing
+list as Excel, CSV or PDF. Use GLOBAL only for global mappings. Store item codes and
+pallet numbers as text in Excel to preserve leading zeros.
 
-**2. Pokreni mapiranje i provjeri konverziju**
+**2. Run mapping and check conversions**
 
-Odaberi kolonu sa šifrom dobavljača (**SUPPLIER code**). Za artikle s aktivnim
-pravilima konverzije odaberi i **Quantity column** te **Unit price column**.
-Koristi stvarnu jediničnu cijenu po komadu, a ne ukupni iznos ili težinu.
-Klikni **Run mapping** i provjeri Matched / Unmatched te **UoM conversion audit**.
+Select the column containing the supplier item code (**SUPPLIER code**).
+For items with active conversion rules, also select **Quantity column** and
+**Unit price column**. Use the actual price per piece, not the line total or weight.
+Click **Run mapping**, then review Matched / Unmatched and the **UoM conversion audit**.
 
-Aktivno pravilo za odabranog dobavljača dijeli količinu s dividerom i množi
-jediničnu cijenu istim brojem. Vrijednost retka ostaje jednaka. Količine koje nisu
-djeljive dividerom i neispravni brojevi zaustavljaju mapiranje. Artikli bez pravila
-ostaju nepromijenjeni. Za ponovni rad uvijek koristi izvorni dokument — nemoj
-ponovno učitavati već konvertirani export.
+An active rule for the selected vendor divides quantity by the divider and multiplies
+unit price by the same number. The line value stays unchanged. Quantities that are
+not divisible by the divider, and invalid numbers, block mapping. Items without
+a rule stay unchanged. Always rerun from the original document - do not upload an
+already converted export as a source invoice.
 
-**3. Odaberi način izvoza**
+**3. Choose your export**
 
-- **Excel (Matched + Unmatched):** preuzmi rezultate na odvojenim listovima.
-- **Custom Excel:** po potrebi unesi konstantne vrijednosti Invoice, Item, Location,
-  vendor_id i datum. Odaberi kolone, povuci ih u željeni redoslijed i klikni
-  **Apply changes**. Provjeri preview; za šifre po potrebi uključi izvoz kao TEXT.
-- **Pallets_import.prn:** odaberi točno **3 kolone** redom: TOW šifra, količina,
-  broj palete. Fiksne širine su **20 / 30 / 50**.
-- **Regular export:** odaberi točno **3 kolone** u potrebnom redoslijedu.
-  Fiksne širine su **10 / 15 / 15**.
-- **Portal_export.csv:** odaberi točno **10 kolona** redom: broj računa, Invoice,
-  Item, prazno polje, TOW šifra, količina, jedinična cijena, datum, Location,
-  vendor_id. U **Optional: Portal CSV fields** možeš dodati **PortalInvoiceNo**
-  i **PortalBlank**; PortalBlank postavi na četvrto mjesto. CSV koristi
-  točku-zarez, decimalni zarez i datum oblika **27.5.2026.**
+- **Excel (Matched + Unmatched):** download the results on separate worksheets.
+- **Custom Excel:** optionally set constant Invoice, Item, Location and vendor_id
+  values, and a date. Select columns, drag them into the required order, and click
+  **Apply changes**. Check the preview. Use the TEXT option for identifier columns
+  where needed.
+- **Pallets_import.prn:** select exactly **3 columns**, in this order: TOW code,
+  quantity, pallet number. Fixed widths are **20 / 30 / 50** characters.
+- **Regular export:** select exactly **3 columns** in the required order.
+  Fixed widths are **10 / 15 / 15** characters.
+- **Portal_export.csv:** select exactly **10 columns**, in this order: invoice number,
+  Invoice, Item, blank field, TOW code, quantity, unit price, date, Location, vendor_id.
+  Under **Optional: Portal CSV fields**, you can add **PortalInvoiceNo** and
+  **PortalBlank**. Put PortalBlank in position 4. The CSV uses semicolons, decimal
+  commas, and dates such as **27.5.2026.**
 
-PRN i Portal CSV nemaju zaglavlja niti nazive kolona. Za ove izvoze prvo riješi
-sve Unmatched retke. Nakon promjene odabira ili redoslijeda klikni **Apply changes**.
-Ako nema gumba za preuzimanje, provjeri broj i redoslijed kolona te poruku ispod
-odgovarajućeg izvoza. Predugačka PRN polja ne skraćuju se automatski.
+PRN and Portal CSV exports contain no headers or column names. Resolve all Unmatched
+rows before using these exports. After changing the selection or order, click
+**Apply changes**. If a download button is missing, check the number and order of
+columns and the message below that export. Oversized PRN fields are rejected
+rather than truncated.
 
-**4. Admin — pojedinačni unos i grupni import**
+**4. Admin - single entries and bulk imports**
 
-Unesi **Admin PIN** i klikni **Unlock**. U UoM Conversion možeš dodavati, mijenjati
-ili deaktivirati pravila konverzije. U Add a single mapping možeš spremiti
-mapiranje izravno ili ga dodati u queue; Live search služi za pregled postojećih mapiranja.
+Enter the **Admin PIN** and click **Unlock**. In UoM Conversion, add, edit or disable
+conversion rules. Under Add a single mapping, save a mapping directly or add it to
+the queue. Use Live search to inspect existing mappings.
 
-Za više artikala otvori odgovarajući **Bulk import — XLSX / CSV**, preuzmi predložak,
-zamijeni primjer vlastitim podacima i učitaj datoteku sa zaglavljima:
+To import multiple items, open the appropriate **Bulk import - XLSX / CSV** section.
+Download a template, replace the example row with your data, and upload a file
+with these headers:
 
-- **Mapiranja:** vendor_id, supplier_id, tow_code.
-- **Konverzije:** vendor_id, supplier_id, divider i opcionalno active.
-  Ako kolona active nije uključena, vrijednost je true.
+- **Mappings:** vendor_id, supplier_id, tow_code.
+- **Conversions:** vendor_id, supplier_id, divider, and optional active.
+  If the active column is omitted, it defaults to true.
 
-Provjeri validaciju i preview prije klika na **Import … to Neon**.
-Postojeći zapisi se zadano preskaču; **Update existing records** uključi samo
-kada želiš zamijeniti njihove vrijednosti. Za GLOBAL mapiranja s praznim vendor_id
-potrebno je uključiti posebnu opciju. Konverzije uvijek zahtijevaju vendor_id.
+Review validation results and the preview before clicking **Import ... to Neon**.
+Existing records are skipped by default. Enable **Update existing records** only
+when you intend to replace their values. GLOBAL mappings with blank vendor_id
+require the separate opt-in. Conversion rules always require a vendor_id.
 
-Import podržava do **10.000 redaka**, prvi list XLSX datoteke i UTF-8 CSV
-(zarez, točka-zarez ili tabulator). Neispravni ili dupli ključevi u datoteci blokiraju
-cijeli import; pogreške možeš preuzeti kao CSV. Import ne briše postojeće zapise.
-Nakon izmjena baze ponovno pokreni mapiranje izvornog dokumenta.
+Imports support up to **10,000 rows**, the first worksheet of an XLSX file, and
+UTF-8 CSV files separated by commas, semicolons or tabs. Invalid rows or duplicate
+vendor/item keys within a file block the entire import. Validation errors can be
+downloaded as CSV. Imports do not delete existing records.
+After database changes, rerun mapping from the original document.
 """)
 
 st.toggle("Debug logs", key="_debug", value=False)
