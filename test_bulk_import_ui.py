@@ -46,6 +46,23 @@ class BulkImportUiTests(unittest.TestCase):
             self.assertTrue(any("invalid rows" in item.value for item in app.error))
             self.assertFalse(any(b.key == "bulk_conversion_apply" for b in app.button))
 
+    def test_import_sections_are_behind_existing_admin_pin(self):
+        from test_uom_workflow import WorkflowTests
+        workflow = WorkflowTests()
+        workflow.setUp()
+        try:
+            self.assertFalse(any("Bulk import" in section.label for section in workflow.app.expander))
+            workflow.app.text_input(key="admin_pin_input").set_value("wrong").run()
+            workflow.app.button(key="btn_unlock").click().run()
+            self.assertFalse(any("Bulk import" in section.label for section in workflow.app.expander))
+            workflow.app.text_input(key="admin_pin_input").set_value("test-only").run()
+            workflow.app.button(key="btn_unlock").click().run()
+            self.assertFalse(list(workflow.app.exception))
+            self.assertEqual(sum("Bulk import" in section.label for section in workflow.app.expander), 2)
+        finally:
+            workflow.tearDown()
+
 
 if __name__ == "__main__":
     unittest.main()
+
