@@ -25,6 +25,11 @@ import streamlit_sortables
 from uom_conversion import convert_invoice
 from uom_admin import render_uom_admin
 from decimal import Decimal
+# Streamlit can rerun this script while retaining an older imported helper.
+# Reload before resolving exports added by a live deployment.
+import importlib
+import prn_export
+importlib.reload(prn_export)
 from prn_export import pallets_prn, regular_prn
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
