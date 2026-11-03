@@ -35,7 +35,7 @@ def pallets_prn(frame, tow_col, quantity_col, pallet_col):
         lines.append(
             _field(record[tow_col], 20, position, "TOW code")
             + _field(qty_text, 30, position, "Quantity")
-            + _field(record[pallet_col], 11, position, "Pallet code")
+            + _field(record[pallet_col], 50, position, "Pallet code")
         )
     return ("\r\n".join(lines) + "\r\n").encode("ascii")
 
