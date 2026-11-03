@@ -25,6 +25,7 @@ import streamlit_sortables
 from uom_conversion import convert_invoice
 from uom_admin import render_uom_admin
 from decimal import Decimal
+from prn_export import pallets_prn
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
 
@@ -520,6 +521,20 @@ if st.session_state.get("mapped_ready", False):
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="dl_both_custom",
         )
+
+        st.markdown("#### Pallets PRN export")
+        st.caption("Uses the custom export selection above. Select exactly three columns, ordered: TOW code, quantity, pallet number. Fixed widths: 20 / 30 / 11; no header.")
+        if not unmatched_out.empty:
+            st.warning("Resolve unmatched rows before downloading the pallets PRN so no invoice rows are omitted.")
+        elif len(export_cols) != 3:
+            st.info("Select exactly three export columns in the required order and apply changes to prepare Pallets_import.prn.")
+        else:
+            try:
+                prn_data = pallets_prn(matched_out, *export_cols)
+                st.download_button("Download Pallets_import.prn", data=prn_data, file_name="Pallets_import.prn", mime="application/octet-stream", key="dl_pallets_prn")
+                st.caption(f"{len(matched_out)} rows; 61 characters per row. Leading zeros in text codes are preserved.")
+            except ValueError as exc:
+                st.error(f"Pallets PRN: {exc}")
     else:
         st.info("Select columns, drag to reorder, and press 'Apply changes' to update preview/export.")
 else:
