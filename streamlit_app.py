@@ -525,7 +525,7 @@ if st.session_state.get("mapped_ready", False):
         )
 
         st.markdown("#### Pallets PRN export")
-        st.caption("Uses the custom export selection above. Select exactly three columns, ordered: TOW code, quantity, pallet number. Fixed widths: 20 / 30 / 11; no header.")
+        st.caption("Uses the custom export selection above. Select exactly three columns, ordered: TOW code, quantity, pallet number. Fixed widths: 20 / 30 / 50; no header.")
         if not unmatched_out.empty:
             st.warning("Resolve unmatched rows before downloading the pallets PRN so no invoice rows are omitted.")
         elif len(export_cols) != 3:
@@ -534,7 +534,7 @@ if st.session_state.get("mapped_ready", False):
             try:
                 prn_data = pallets_prn(matched_out, *export_cols)
                 st.download_button("Download Pallets_import.prn", data=prn_data, file_name="Pallets_import.prn", mime="application/octet-stream", key="dl_pallets_prn")
-                st.caption(f"{len(matched_out)} rows; 61 characters per row. Leading zeros in text codes are preserved.")
+                st.caption(f"{len(matched_out)} rows; 100 characters per row. Leading zeros in text codes are preserved.")
             except ValueError as exc:
                 st.error(f"Pallets PRN: {exc}")
 
