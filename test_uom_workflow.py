@@ -100,6 +100,29 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(any("not divisible" in item.value for item in self.app.error))
         self.assertNotIn("dl_simple_both", self.exports)
 
+    def test_portal_selection_retains_new_fields_and_download(self):
+        self.upload.seek(0)
+        self.upload.truncate()
+        self.upload.write(b"code,qty,price\nA,12,2.50\n")
+        self.upload.seek(0)
+        self.app.selectbox(key="vendor_select").select("V1").run()
+        self.map_invoice()
+        self.app.text_input(key="portal_document").set_value("TEST123").run()
+        self.app.checkbox(key="portal_blank").check().run()
+        next(t for t in self.app.text_input if t.label.startswith("Manual Date")).set_value("27.05.2026").run()
+        selected = ["PortalInvoiceNo", "Invoice", "Item", "PortalBlank", "tow", "qty", "price", "date", "Location", "vendor_id"]
+        self.app.multiselect(key="multiselect_export_cols").set_value(selected).run()
+        next(b for b in self.app.button if b.label == "Apply changes").click().run()
+        self.assertFalse(list(self.app.exception))
+        self.assertEqual(self.app.session_state["export_cols"], selected)
+        self.assertEqual(self.exports["dl_portal_csv"], b"TEST123;Invoice;Item;;TOW-A;4;7,5;27.5.2026.;H00;V1\r\n")
+        self.app.run()
+        self.assertEqual(self.app.session_state["export_cols"], selected)
+        next(b for b in self.app.button if b.label == "Deselect All").click().run()
+        self.assertEqual(self.app.multiselect(key="multiselect_export_cols").value, [])
+        next(b for b in self.app.button if b.label == "Select All").click().run()
+        self.assertIn("PortalBlank", self.app.multiselect(key="multiselect_export_cols").value)
+
 
 if __name__ == "__main__":
     unittest.main()
