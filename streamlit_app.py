@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import csv
+import hashlib
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -21,6 +22,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 import streamlit_sortables
+from uom_conversion import convert_invoice
+from uom_admin import render_uom_admin
+from decimal import Decimal
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
 
@@ -75,7 +79,10 @@ def _excel_bytes(dfs: Dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(bio, engine="xlsxwriter") as w:
         for sheet, df in dfs.items():
             if isinstance(df, pd.DataFrame) and not df.empty:
-                df.reset_index(drop=True).to_excel(w, index=False, sheet_name=sheet[:31] or "Sheet")
+                export_df = df.reset_index(drop=True).copy()
+                for column in export_df.columns:
+                    export_df[column] = export_df[column].map(lambda value: float(value) if isinstance(value, Decimal) else value)
+                export_df.to_excel(w, index=False, sheet_name=sheet[:31] or "Sheet")
     return bio.getvalue()
 
 @st.cache_resource(show_spinner=False)
@@ -211,6 +218,10 @@ st.caption("Ostavi prazno za GLOBAL mapiranja (vrijedi za sve vendore).")
 # =============================================================================
 st.subheader("1) Upload supplier invoice (Excel / CSV / PDF)")
 uploaded = st.file_uploader("Drag & drop ili odaberi datoteku", type=["xlsx", "xls", "csv", "pdf"], key="uploader")
+source_key = (vendor, hashlib.sha256(uploaded.getvalue()).hexdigest() if uploaded else None)
+if st.session_state.get("uom_source_key") != source_key:
+    st.session_state["mapped_ready"] = False
+    st.session_state["uom_source_key"] = source_key
 
 preview_df: pd.DataFrame | None = None
 if uploaded is not None:
@@ -277,7 +288,16 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
         key="supplier_col_select",
     )
 
+    st.caption("UoM conversion uses active rules for the selected vendor. Upload the original supplier invoice.")
+    quantity_col = st.selectbox("Quantity column", ["(select)"] + list(preview_df.columns))
+    price_col = st.selectbox("Unit price column", ["(select)"] + list(preview_df.columns))
+    mapping_columns = (supplier_col, quantity_col, price_col)
+    if st.session_state.get("uom_mapping_columns") != mapping_columns:
+        st.session_state["mapped_ready"] = False
+        st.session_state["uom_mapping_columns"] = mapping_columns
+
     if st.button("Run mapping", type="primary", key="btn_run_mapping"):
+        st.session_state["mapped_ready"] = False
         try:
             df_sup = preview_df.rename(columns={supplier_col: "supplier_id"}).copy()
             df_sup["supplier_id"] = df_sup["supplier_id"].astype(str).str.strip()
@@ -303,6 +323,14 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
 
             df_out = df_sup.copy()
             df_out["tow"] = df_out["supplier_id"].map(resolve_tow)
+            rules_df = _read_sql("SELECT supplier_id, divider FROM item_uom_conversion WHERE vendor_id = :v AND active = TRUE", {"v": vparam})
+            rules = dict(zip(rules_df["supplier_id"], rules_df["divider"]))
+            audit = []
+            if set(df_out["supplier_id"]) & set(rules):
+                if quantity_col == "(select)" or price_col == "(select)":
+                    raise ValueError("Select quantity and unit price columns for packaging conversion.")
+                df_out, audit = convert_invoice(df_out, rules, quantity_col, price_col)
+            st.session_state["uom_audit"] = audit
 
             st.session_state["matched"] = df_out[df_out["tow"].notna()].copy()
             st.session_state["unmatched"] = df_out[df_out["tow"].isna()].copy()
@@ -317,6 +345,9 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
 
 # Show result if available
 if st.session_state.get("mapped_ready", False):
+    if st.session_state.get("uom_audit"):
+        with st.expander("UoM conversion audit — line values verified"):
+            st.dataframe(pd.DataFrame(st.session_state["uom_audit"]), use_container_width=True)
     matched = st.session_state["matched"]
     unmatched = st.session_state["unmatched"]
 
@@ -508,7 +539,7 @@ with c_pin1:
     pin_in = st.text_input("Admin PIN", type="password", key="admin_pin_input")
 with c_pin2:
     if st.button("Unlock", key="btn_unlock"):
-        st.session_state["admin_unlocked"] = (str(pin_in).strip() == expected_pin)
+        st.session_state["admin_unlocked"] = bool(expected_pin) and (str(pin_in).strip() == expected_pin)
 with c_pin3:
     st.caption(f"PIN configured: {'✅' if expected_pin else '❌'}")
 
@@ -517,6 +548,7 @@ if not st.session_state.get("admin_unlocked", False):
     st.stop()
 
 st.success("Admin unlocked.")
+render_uom_admin(engine, vendor)
 
 st.markdown("### Add a single mapping")
 
