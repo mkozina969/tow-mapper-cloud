@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import csv
 import hashlib
+import importlib
 from io import BytesIO
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
@@ -23,17 +24,19 @@ from sqlalchemy.engine import Engine
 
 import streamlit_sortables
 from uom_conversion import convert_invoice
+import uom_admin
+importlib.reload(uom_admin)
 from uom_admin import render_uom_admin
 from decimal import Decimal
 # Streamlit can rerun this script while retaining an older imported helper.
 # Reload before resolving exports added by a live deployment.
-import importlib
 import prn_export
 importlib.reload(prn_export)
 from prn_export import pallets_prn, regular_prn
 import portal_csv_export
 importlib.reload(portal_csv_export)
 from portal_csv_export import portal_csv
+from bulk_import import render_bulk_import
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
 
@@ -640,6 +643,8 @@ with st.form("admin_add_single"):
                     st.success("Upsert OK.")
                 except Exception as e:
                     st.error(f"DB error: {e}")
+
+render_bulk_import(engine, "mapping")
 
 st.markdown("### Apply queued CSV to DB")
 
