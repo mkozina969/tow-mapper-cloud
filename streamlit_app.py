@@ -171,10 +171,68 @@ def columns_sortable_with_apply(preferred_order: List[str]) -> Optional[List[str
 st.title("Supplier → TOW Mapper (Developer DB)")
 with st.expander("How to use", expanded=False):
     st.markdown("""
-1) Učitaj račun (Excel/CSV/PDF).  
-2) Odaberi kolonu sa **supplier code** i pokreni mapping.  
-3) Export: klasični (Matched+Unmatched) ili **Custom** (odabir kolona i redoslijeda).  
-4) Admin (PIN): upsert, queue, apply i live search.
+**1. Odaberi dobavljača i učitaj datoteku**
+
+Odaberi odgovarajući **Vendor**, zatim učitaj izvorni račun ili otpremnicu u formatu
+Excel, CSV ili PDF. GLOBAL koristi samo za globalna mapiranja. Šifre artikala i
+paleta u Excelu čuvaj kao tekst kako bi se sačuvale vodeće nule.
+
+**2. Pokreni mapiranje i provjeri konverziju**
+
+Odaberi kolonu sa šifrom dobavljača (**SUPPLIER code**). Za artikle s aktivnim
+pravilima konverzije odaberi i **Quantity column** te **Unit price column**.
+Koristi stvarnu jediničnu cijenu po komadu, a ne ukupni iznos ili težinu.
+Klikni **Run mapping** i provjeri Matched / Unmatched te **UoM conversion audit**.
+
+Aktivno pravilo za odabranog dobavljača dijeli količinu s dividerom i množi
+jediničnu cijenu istim brojem. Vrijednost retka ostaje jednaka. Količine koje nisu
+djeljive dividerom i neispravni brojevi zaustavljaju mapiranje. Artikli bez pravila
+ostaju nepromijenjeni. Za ponovni rad uvijek koristi izvorni dokument — nemoj
+ponovno učitavati već konvertirani export.
+
+**3. Odaberi način izvoza**
+
+- **Excel (Matched + Unmatched):** preuzmi rezultate na odvojenim listovima.
+- **Custom Excel:** po potrebi unesi konstantne vrijednosti Invoice, Item, Location,
+  vendor_id i datum. Odaberi kolone, povuci ih u željeni redoslijed i klikni
+  **Apply changes**. Provjeri preview; za šifre po potrebi uključi izvoz kao TEXT.
+- **Pallets_import.prn:** odaberi točno **3 kolone** redom: TOW šifra, količina,
+  broj palete. Fiksne širine su **20 / 30 / 50**.
+- **Regular export:** odaberi točno **3 kolone** u potrebnom redoslijedu.
+  Fiksne širine su **10 / 15 / 15**.
+- **Portal_export.csv:** odaberi točno **10 kolona** redom: broj računa, Invoice,
+  Item, prazno polje, TOW šifra, količina, jedinična cijena, datum, Location,
+  vendor_id. U **Optional: Portal CSV fields** možeš dodati **PortalInvoiceNo**
+  i **PortalBlank**; PortalBlank postavi na četvrto mjesto. CSV koristi
+  točku-zarez, decimalni zarez i datum oblika **27.5.2026.**
+
+PRN i Portal CSV nemaju zaglavlja niti nazive kolona. Za ove izvoze prvo riješi
+sve Unmatched retke. Nakon promjene odabira ili redoslijeda klikni **Apply changes**.
+Ako nema gumba za preuzimanje, provjeri broj i redoslijed kolona te poruku ispod
+odgovarajućeg izvoza. Predugačka PRN polja ne skraćuju se automatski.
+
+**4. Admin — pojedinačni unos i grupni import**
+
+Unesi **Admin PIN** i klikni **Unlock**. U UoM Conversion možeš dodavati, mijenjati
+ili deaktivirati pravila konverzije. U Add a single mapping možeš spremiti
+mapiranje izravno ili ga dodati u queue; Live search služi za pregled postojećih mapiranja.
+
+Za više artikala otvori odgovarajući **Bulk import — XLSX / CSV**, preuzmi predložak,
+zamijeni primjer vlastitim podacima i učitaj datoteku sa zaglavljima:
+
+- **Mapiranja:** vendor_id, supplier_id, tow_code.
+- **Konverzije:** vendor_id, supplier_id, divider i opcionalno active.
+  Ako kolona active nije uključena, vrijednost je true.
+
+Provjeri validaciju i preview prije klika na **Import … to Neon**.
+Postojeći zapisi se zadano preskaču; **Update existing records** uključi samo
+kada želiš zamijeniti njihove vrijednosti. Za GLOBAL mapiranja s praznim vendor_id
+potrebno je uključiti posebnu opciju. Konverzije uvijek zahtijevaju vendor_id.
+
+Import podržava do **10.000 redaka**, prvi list XLSX datoteke i UTF-8 CSV
+(zarez, točka-zarez ili tabulator). Neispravni ili dupli ključevi u datoteci blokiraju
+cijeli import; pogreške možeš preuzeti kao CSV. Import ne briše postojeće zapise.
+Nakon izmjena baze ponovno pokreni mapiranje izvornog dokumenta.
 """)
 
 st.toggle("Debug logs", key="_debug", value=False)
