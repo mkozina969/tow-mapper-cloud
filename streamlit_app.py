@@ -31,6 +31,9 @@ import importlib
 import prn_export
 importlib.reload(prn_export)
 from prn_export import pallets_prn, regular_prn
+import portal_csv_export
+importlib.reload(portal_csv_export)
+from portal_csv_export import portal_csv
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
 
@@ -438,6 +441,9 @@ if st.session_state.get("mapped_ready", False):
         return dt.strftime("%Y-%m-%d")
 
     manual_dt = _try_parse_manual(date_manual_raw)
+    with st.expander("Optional: Portal CSV fields"):
+        portal_document = st.text_input("Invoice number (adds PortalInvoiceNo column)", value="", key="portal_document")
+        portal_blank = st.checkbox("Add blank column for portal field 4", key="portal_blank")
 
     def _extract_date_series(df: pd.DataFrame):
         if manual_dt:
@@ -459,6 +465,10 @@ if st.session_state.get("mapped_ready", False):
         df2["vendor_id"] = vendor_to_stamp
         df2["Location"] = location_text
         df2["date"] = _extract_date_series(df2)
+        if portal_document.strip():
+            df2["PortalInvoiceNo"] = portal_document.strip()
+        if portal_blank:
+            df2["PortalBlank"] = ""
         return df2
 
     matched_en = _enrich(matched)
@@ -554,6 +564,19 @@ if st.session_state.get("mapped_ready", False):
                 st.caption(f"{len(matched_out)} rows; 40 characters per row.")
             except ValueError as exc:
                 st.error(f"Regular PRN: {exc}")
+
+        st.markdown("#### Portal CSV export")
+        st.caption("Select ten columns in order: invoice number, Invoice, Item, blank, TOW code, quantity, unit price, date, Location, vendor_id. Semicolon separator, decimal commas, D.M.YYYY. dates; no headers.")
+        if not unmatched_out.empty:
+            st.warning("Resolve unmatched rows before downloading the portal CSV so no invoice rows are omitted.")
+        elif len(export_cols) != 10:
+            st.info("Select exactly ten columns above and apply changes. Optional Portal CSV fields can supply an invoice number and blank column.")
+        else:
+            try:
+                portal_data = portal_csv(matched_out)
+                st.download_button("Download Portal_export.csv", data=portal_data, file_name="Portal_export.csv", mime="text/csv", key="dl_portal_csv")
+            except ValueError as exc:
+                st.error(f"Portal CSV: {exc}")
     else:
         st.info("Select columns, drag to reorder, and press 'Apply changes' to update preview/export.")
 else:
