@@ -1,4 +1,4 @@
-"""Fixed-width Pallets_import.prn format: 20 / 30 / 11 ASCII characters."""
+"""Headerless, fixed-width ASCII PRN exports with Windows line endings."""
 from decimal import Decimal, InvalidOperation
 import pandas as pd
 
@@ -37,4 +37,24 @@ def pallets_prn(frame, tow_col, quantity_col, pallet_col):
             + _field(qty_text, 30, position, "Quantity")
             + _field(record[pallet_col], 11, position, "Pallet code")
         )
+    return ("\r\n".join(lines) + "\r\n").encode("ascii")
+
+
+def regular_prn(frame, *columns):
+    """Export three selected columns in order, using widths 10 / 15 / 15."""
+    if len(columns) != 3 or len(set(columns)) != 3:
+        raise ValueError("Choose exactly three different source columns.")
+    if frame.empty:
+        raise ValueError("No rows available for regular export.")
+    lines = []
+    for position, (_, record) in enumerate(frame.iterrows(), start=1):
+        fields = []
+        for column, width in zip(columns, (10, 15, 15)):
+            value = record[column]
+            if isinstance(value, Decimal) and value.is_finite():
+                value = format(value, "f")
+                if "." in value:
+                    value = value.rstrip("0").rstrip(".")
+            fields.append(_field(value, width, position, str(column)))
+        lines.append("".join(fields))
     return ("\r\n".join(lines) + "\r\n").encode("ascii")
