@@ -2,6 +2,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from sqlalchemy import text
+from bulk_import import render_bulk_import
 
 
 def render_uom_admin(engine, vendor):
@@ -34,6 +35,7 @@ def render_uom_admin(engine, vendor):
                     except Exception as exc:
                         st.error(f"Save failed: {exc}")
         st.caption("To edit or disable a rule, enter the same vendor and supplier item and save the new values.")
+        render_bulk_import(engine, "conversion")
         try:
             with engine.connect() as conn:
                 rules = pd.read_sql(text("SELECT vendor_id, supplier_id, divider, active FROM item_uom_conversion WHERE vendor_id = :v ORDER BY supplier_id"), conn, params={"v": vendor})
