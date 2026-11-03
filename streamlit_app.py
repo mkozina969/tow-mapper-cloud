@@ -25,7 +25,7 @@ import streamlit_sortables
 from uom_conversion import convert_invoice
 from uom_admin import render_uom_admin
 from decimal import Decimal
-from prn_export import pallets_prn
+from prn_export import pallets_prn, regular_prn
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
 
@@ -535,6 +535,20 @@ if st.session_state.get("mapped_ready", False):
                 st.caption(f"{len(matched_out)} rows; 61 characters per row. Leading zeros in text codes are preserved.")
             except ValueError as exc:
                 st.error(f"Pallets PRN: {exc}")
+
+        st.markdown("#### Regular export")
+        st.caption("Uses the same three applied export columns in their selected order. Fixed widths: 10 / 15 / 15; no headers or column names.")
+        if not unmatched_out.empty:
+            st.warning("Resolve unmatched rows before downloading the regular PRN so no invoice rows are omitted.")
+        elif len(export_cols) != 3:
+            st.info("Select exactly three export columns and apply changes to prepare Regular_export.prn.")
+        else:
+            try:
+                regular_data = regular_prn(matched_out, *export_cols)
+                st.download_button("Regular export", data=regular_data, file_name="Regular_export.prn", mime="application/octet-stream", key="dl_regular_prn")
+                st.caption(f"{len(matched_out)} rows; 40 characters per row.")
+            except ValueError as exc:
+                st.error(f"Regular PRN: {exc}")
     else:
         st.info("Select columns, drag to reorder, and press 'Apply changes' to update preview/export.")
 else:
