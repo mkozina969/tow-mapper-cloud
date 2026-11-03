@@ -113,69 +113,53 @@ def _read_sql(query: str, params: dict | None = None) -> pd.DataFrame:
 # =============================================================================
 def columns_sortable_with_apply(preferred_order: List[str]) -> Optional[List[str]]:
     st.markdown("### Choose export columns & order (drag to reorder below)")
-
-    def filter_to_options(cols, options):
-        return [c for c in cols if c in options]
-
     if not preferred_order:
         st.warning("No columns available for export/reordering.")
         return None
 
-    if "pending_export_cols" not in st.session_state:
-        st.session_state["pending_export_cols"] = preferred_order.copy()
-    else:
-        st.session_state["pending_export_cols"] = filter_to_options(
-            st.session_state["pending_export_cols"], preferred_order
-        ) or preferred_order.copy()
-
-    if "export_cols" not in st.session_state:
-        st.session_state["export_cols"] = preferred_order.copy()
-    else:
-        st.session_state["export_cols"] = filter_to_options(
-            st.session_state["export_cols"], preferred_order
-        ) or preferred_order.copy()
-
-    if "columns_applied" not in st.session_state:
-        st.session_state["columns_applied"] = True
-
-    sorted_cols = streamlit_sortables.sort_items(
-        st.session_state["pending_export_cols"],
-        direction="horizontal",
-        key="sortable_export_cols"
-    )
-
-    all_options = preferred_order.copy()
-    default_selected = filter_to_options(sorted_cols, all_options)
+    pending = [c for c in st.session_state.get("pending_export_cols", preferred_order) if c in preferred_order]
     selected = st.multiselect(
-        "Add/remove columns (order preserved above):",
-        options=all_options,
-        default=default_selected,
-        key="multiselect_export_cols"
+        "Add/remove columns (drag below to reorder):",
+        options=preferred_order,
+        default=pending,
+        key="multiselect_export_cols",
     )
+    # A changed selection supplies its complete order, including newly added fields.
+    # Otherwise preserve the order returned by the drag component.
+    selection = tuple(selected)
+    if st.session_state.get("_last_column_selection") != selection:
+        pending = selected.copy()
+        st.session_state["_last_column_selection"] = selection
+    else:
+        pending = [c for c in pending if c in selected]
+        pending += [c for c in selected if c not in pending]
 
-    if selected != st.session_state["pending_export_cols"]:
+    if pending:
+        # Reset the component whenever its input changes; it can retain stale items
+        # under a constant key across updates to the available columns.
+        signature = hashlib.sha256(repr(pending).encode()).hexdigest()[:16]
+        sorted_cols = streamlit_sortables.sort_items(pending, direction="horizontal", key=f"sortable_export_cols_{signature}")
+        pending = [c for c in sorted_cols if c in selected]
+        pending += [c for c in selected if c not in pending]
+    st.session_state["pending_export_cols"] = pending
+    if pending != st.session_state.get("export_cols"):
         st.session_state["columns_applied"] = False
 
-    sorted_selected = [c for c in sorted_cols if c in selected]
-    st.session_state["pending_export_cols"] = sorted_selected
+    def choose_columns(values):
+        st.session_state["multiselect_export_cols"] = values.copy()
+        st.session_state["pending_export_cols"] = values.copy()
+        st.session_state["_last_column_selection"] = tuple(values)
+        st.session_state["columns_applied"] = False
 
     col1, col2 = st.columns([1, 2])
     with col1:
-        if st.button("Select All"):
-            st.session_state["pending_export_cols"] = all_options.copy()
-            st.session_state["columns_applied"] = False
-        if st.button("Deselect All"):
-            st.session_state["pending_export_cols"] = []
-            st.session_state["columns_applied"] = False
+        st.button("Select All", on_click=choose_columns, args=(preferred_order,))
+        st.button("Deselect All", on_click=choose_columns, args=([],))
     with col2:
         if st.button("Apply changes"):
-            st.session_state["export_cols"] = st.session_state["pending_export_cols"].copy()
+            st.session_state["export_cols"] = pending.copy()
             st.session_state["columns_applied"] = True
-
-    if st.session_state["columns_applied"]:
-        return st.session_state["export_cols"]
-    else:
-        return None
+    return st.session_state.get("export_cols") if st.session_state.get("columns_applied", False) else None
 
 # =============================================================================
 # Main Script Starts Here (NO CACHING)
