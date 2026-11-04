@@ -78,11 +78,13 @@ def _access(st):
 
 def export_callback(filename, data, mime):
     import streamlit as st
+    from mapper_access import has_app_access
     if not _enabled(st) or not _access(st) or not st.session_state.get("share_finished_exports", False):
         return None
 
     def save():
-        if not _enabled(st) or not _access(st) or not st.session_state.get("share_finished_exports", False):
+        if (not has_app_access(st) or not _enabled(st) or not _access(st)
+                or not st.session_state.get("share_finished_exports", False)):
             return
         try:
             key = save_export(client(st.secrets["download_center"]), filename, data, mime)

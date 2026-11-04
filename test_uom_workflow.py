@@ -11,6 +11,7 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 import streamlit as st
 from streamlit.testing.v1 import AppTest
+from test_mapper_access import start_authorized
 
 
 class WorkflowTests(unittest.TestCase):
@@ -47,7 +48,7 @@ class WorkflowTests(unittest.TestCase):
         self.patches = [patch.object(st, "file_uploader", return_value=self.upload), patch.object(st, "download_button", side_effect=capture), patch("sqlalchemy.create_engine", side_effect=tracked_engine)]
         for item in self.patches:
             item.start()
-        self.app = AppTest.from_file("streamlit_app.py", default_timeout=30).run()
+        self.app = start_authorized(AppTest.from_file("streamlit_app.py", default_timeout=30))
 
     def tearDown(self):
         for item in reversed(self.patches):

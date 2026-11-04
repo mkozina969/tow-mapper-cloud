@@ -130,7 +130,8 @@ class DownloadPageTests(unittest.TestCase):
             "boto3": SimpleNamespace(client=lambda *args, **kwargs: self.storage),
             "botocore.config": SimpleNamespace(Config=lambda **kwargs: None),
         }))
-        self.app.run()
+        from test_mapper_access import start_authorized
+        start_authorized(self.app)
         self.assertFalse(self.app.exception)
 
     def unlock(self, label, value):
@@ -178,7 +179,7 @@ class DownloadPageTests(unittest.TestCase):
         self.assertTrue(grant.is_set())
         self.assertNotIn(dc.DOWNLOAD_GRANT, self.app.session_state)
         self.assertNotIn("matched", self.app.session_state)
-        self.navigate("Download Center")
+        self.assertFalse(self.app.radio)
         self.assertFalse(self.app.dataframe)
 
     def test_delete_requires_distinct_key_and_explicit_confirmation(self):

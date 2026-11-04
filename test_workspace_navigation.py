@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 import streamlit as st
 from streamlit.testing.v1 import AppTest
+from test_mapper_access import sign_in, start_authorized
 
 APP = Path(__file__).with_name("streamlit_app.py")
 
@@ -52,7 +53,7 @@ class WorkspaceTests(unittest.TestCase):
         for section in ("Crosswalk Mapping", "UoM Conversion"):
             app = AppTest.from_file(str(APP), default_timeout=30)
             app.session_state["tow_navigation_0"] = section
-            self.app = app.run()
+            self.app = start_authorized(app)
             self.assertFalse(self.app.exception)
             self.unlock("wrong-pin")
             self.assertTrue(any("not accepted" in error.value for error in self.app.error))
@@ -64,7 +65,7 @@ class WorkspaceTests(unittest.TestCase):
         self.app.session_state["tow_retained_upload"] = (
             "packing.csv", b"ProductNumber,Quantity,Pallet\nDEMO-1,24,PAL01\nDEMO-2,3,PAL02\n"
         )
-        self.app.run()
+        start_authorized(self.app)
         self.assertEqual(next(radio for radio in self.app.radio if radio.label == "Sections").value, "Import Center")
         self.app.text_input(key="shared_upload_key").set_value("fixture-upload-key-123456789").run()
         self.app.checkbox(key="share_finished_exports").check().run()
@@ -107,8 +108,10 @@ class WorkspaceTests(unittest.TestCase):
         self.navigate("Settings")
         self.button("Reset session").click().run()
         self.assertFalse(self.app.exception)
-        for key in ("admin_unlocked", "tow_retained_upload", "matched", "export_cols", "updates_df"):
+        for key in ("tow_app_access_grant", "admin_unlocked", "tow_retained_upload", "matched", "export_cols", "updates_df"):
             self.assertNotIn(key, self.app.session_state)
+        self.assertFalse(self.app.radio)
+        sign_in(self.app)
         self.navigate("UoM Conversion")
         self.button("Unlock")
         self.assertFalse(self.app.dataframe)

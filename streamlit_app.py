@@ -44,9 +44,15 @@ import download_center
 importlib.reload(download_center)
 from download_center import export_callback, render_shared_storage
 
-from mapper_ui import render_dashboard, render_preview_section, render_shell, supplier_upload
+from mapper_access import has_app_access, render_access_form
+from mapper_ui import render_brand, render_dashboard, render_preview_section, render_shell, supplier_upload
 
 st.set_page_config(page_title="TOW Mapper Pro", layout="wide", initial_sidebar_state="expanded")
+if not has_app_access(st):
+    render_brand()
+    render_access_form(st)
+    st.stop()
+
 section = render_shell()
 if section == "Download Center":
     download_center.render_download_center(st)

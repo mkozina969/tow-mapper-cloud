@@ -77,7 +77,7 @@ def _preserve_workspace():
 
 
 def render_shell():
-    st.markdown(STYLE, unsafe_allow_html=True)
+    render_brand()
     navigation_key = f"tow_navigation_{st.session_state.get('tow_upload_epoch', 0)}"
     with st.sidebar:
         st.markdown('<div class="tow-preview-label">Workspace</div>', unsafe_allow_html=True)
@@ -89,17 +89,22 @@ def render_shell():
             )
         st.divider()
         st.button("Reset session", on_click=_reset_session, help="Clear files, results, queued changes, and access for this browser session.")
+        st.button("Logout", on_click=_reset_session)
         st.caption("TOW Mapper Pro · UI preview")
 
+    if section != "Import Center":
+        _preserve_workspace()
+    return section
+
+
+def render_brand():
+    st.markdown(STYLE, unsafe_allow_html=True)
     st.markdown(
         '<div class="tow-brand"><span class="tow-brand-mark" aria-hidden="true">T</span>'
         '<span class="tow-brand-name">TOW Mapper Pro</span>'
         '<span class="tow-brand-subtitle">Supplier Data Management</span></div>',
         unsafe_allow_html=True,
     )
-    if section != "Import Center":
-        _preserve_workspace()
-    return section
 
 
 def render_preview_section(section):
