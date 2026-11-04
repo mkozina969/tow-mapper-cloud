@@ -1,30 +1,22 @@
-# Download Center setup
+# Transfer exports through private Neon storage
 
-The private `tow-mapper-exports` bucket is on the `towmapper-aws` production branch. The feature remains hidden until `[download_center].enabled` is set to true. Configure sign-in and verify cleanup before enabling it.
+No Microsoft registration or Streamlit sign-in integration is needed. The storage feature stays hidden until enabled.
 
-1. Have your Microsoft Entra administrator register a single-tenant web application with redirect URI `https://tow-mapper-cloud-9rwtfeavbpeqj8cjyycw5c.streamlit.app/oauth2callback`. Record the tenant ID, app client ID, and the object IDs of approved users in that tenant. Create an app client secret.
-2. Set up a Neon storage credential for the production branch. Enter the credentials directly in Streamlit Secrets; never commit them to GitHub or paste them into chat. Preserve the existing database and Admin settings.
-3. Add the following sections to Streamlit Secrets. Replace placeholders and keep `enabled = false` until the cleanup job is ready. Use a random cookie secret of at least 32 bytes.
+1. Create a production-branch Neon credential with `storage:write` for Streamlit. Keep it server-side. Generate a random team upload key of at least 24 characters and distribute it only to authorized staff.
+2. Add this section in Streamlit Secrets, preserving existing settings. Keep it disabled until cleanup is configured.
 
 ```toml
-[auth]
-redirect_uri = "https://tow-mapper-cloud-9rwtfeavbpeqj8cjyycw5c.streamlit.app/oauth2callback"
-cookie_secret = "REPLACE_WITH_RANDOM_SECRET"
-
-[auth.microsoft]
-client_id = "ENTRA_APP_CLIENT_ID"
-client_secret = "ENTRA_APP_CLIENT_SECRET"
-server_metadata_url = "https://login.microsoftonline.com/TENANT_ID/v2.0/.well-known/openid-configuration"
-
 [download_center]
 enabled = false
-tenant_id = "ENTRA_TENANT_ID"
-allowed_user_ids = ["APPROVED_ENTRA_USER_OBJECT_ID"]
+upload_key = "REPLACE_WITH_RANDOM_TEAM_UPLOAD_KEY"
 endpoint = "https://br-ancient-rice-b21pya8w.storage.c-6.eu-central-1.aws.neon.tech"
 region = "eu-central-1"
-access_key_id = "NEON_STORAGE_ACCESS_KEY_ID"
-secret_access_key = "NEON_STORAGE_SECRET_ACCESS_KEY"
+access_key_id = "NEON_STORAGE_TOKEN_ID"
+secret_access_key = "NEON_STORAGE_S3_SECRET_ACCESS_KEY"
 ```
 
-4. Configure an hourly job on a trusted scheduler with `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, and `AWS_SECRET_ACCESS_KEY` injected securely. Run `python cleanup_download_center.py` first to verify access without deleting anything; configure `python cleanup_download_center.py --apply` as the recurring command. Use a separate scheduler credential if available. The job touches only files in this bucket under the app's export prefix. Neon does not enforce S3 lifecycle expiry; the scheduled job performs the storage deletion operation. Neon documents this operation as a soft delete on the current branch.
-5. Enable the center. Test with a synthetic invoice: sign in as an approved user, opt in to save a shared copy, and click an Excel or Portal CSV download. On the ERP computer, sign in, open Download Center, select the file and prepare a short-lived download link. Verify that an unapproved user cannot list or download files. The file disappears from the center after seven days; an hourly cleanup removes it from the live bucket on the next run.
+3. Configure an hourly scheduler with the four storage environment variables `AWS_ENDPOINT_URL_S3`, `AWS_REGION`, `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Use a separate write-scoped credential if available. Run `python cleanup_download_center.py` to dry-run, then schedule `python cleanup_download_center.py --apply`. Neon does not enforce S3 lifecycle expiry. The job deletes expired app exports from the live bucket on the next hourly run after seven days. Neon describes its delete operation as a soft delete on the current branch.
+4. Enable storage. In Streamlit, open **Save exports to Neon storage**, enter the team upload key, and select the shared-copy option. Download an Excel or Portal CSV file. The app shows the stored object path after a successful save.
+5. On the ERP computer, browse the private `tow-mapper-exports` bucket under `exports/` and download the saved object. Use the Neon Console if your existing project permissions support object downloads. Otherwise, configure an S3-compatible client with path-style addressing, the endpoint above, and a separately issued `storage:read` credential. Do not give staff the Streamlit write credential.
+
+Read credentials cover storage on the anchor branch and its descendants, not a single bucket. They do not grant database access. Check which buckets are on the branch before distributing them. Validate the flow with a synthetic export first. Do not commit or paste credentials into chat.
