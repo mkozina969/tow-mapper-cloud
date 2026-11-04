@@ -2,9 +2,10 @@
 from decimal import Decimal, InvalidOperation, localcontext
 
 
-def convert_invoice(frame, rules, quantity_col, price_col):
+def convert_invoice(frame, rules, quantity_col, price_col=None):
     """Return a converted copy and audit rows. Never modify the source invoice.
 
+    Omit price_col to convert packing-list quantities only.
     Rules map supplier IDs to positive integer dividers for one selected vendor.
     Reject the whole batch on invalid quantities/prices rather than exporting a
     partially converted invoice. Callers must always pass the original upload.
@@ -12,8 +13,9 @@ def convert_invoice(frame, rules, quantity_col, price_col):
     if quantity_col == price_col or "supplier_id" in (quantity_col, price_col):
         raise ValueError("Supplier, quantity and price columns must be different.")
     result = frame.copy(deep=True)
-    for col in (quantity_col, price_col):
-        result[col] = result[col].astype(object)
+    result[quantity_col] = result[quantity_col].astype(object)
+    if price_col is not None:
+        result[price_col] = result[price_col].astype(object)
     audit = []
     for position, (_, row) in enumerate(frame.iterrows()):
         supplier = str(row["supplier_id"]).strip()
@@ -22,21 +24,29 @@ def convert_invoice(frame, rules, quantity_col, price_col):
         try:
             divider = Decimal(str(rules[supplier]))
             qty = Decimal(str(row[quantity_col]).strip())
-            price = Decimal(str(row[price_col]).strip())
-            if not all(x.is_finite() for x in (divider, qty, price)):
+            price = Decimal(str(row[price_col]).strip()) if price_col is not None else None
+            if not (divider.is_finite() and qty.is_finite()) or (price is not None and not price.is_finite()):
                 raise ValueError("Values must be finite numbers.")
             if divider <= 0 or divider != divider.to_integral_value():
                 raise ValueError("Divider must be a positive integer.")
             with localcontext() as context:
-                context.prec = max(50, len(qty.as_tuple().digits) + len(price.as_tuple().digits) + len(divider.as_tuple().digits) + 10)
+                context.prec = max(50, len(qty.as_tuple().digits) + (len(price.as_tuple().digits) if price is not None else 0) + len(divider.as_tuple().digits) + 10)
                 if qty % divider != 0:
                     raise ValueError(f"Quantity {qty} is not divisible by {divider}.")
-                converted_qty, converted_price = qty / divider, price * divider
-                if qty * price != converted_qty * converted_price:
-                    raise ValueError("Conversion changed the line value.")
+                converted_qty = qty / divider
                 result.iat[position, result.columns.get_loc(quantity_col)] = converted_qty
-                result.iat[position, result.columns.get_loc(price_col)] = converted_price
-                audit.append({"row": position + 2, "supplier_id": supplier, "divider": int(divider), "original_quantity": str(qty), "original_price": str(price), "quantity": str(converted_qty), "price": str(converted_price), "line_value": str(qty * price)})
+                entry = {
+                    "row": position + 2, "supplier_id": supplier, "divider": int(divider),
+                    "original_quantity": str(qty), "quantity": str(converted_qty),
+                }
+                if price is not None:
+                    converted_price = price * divider
+                    line_value = qty * price
+                    if line_value != converted_qty * converted_price:
+                        raise ValueError("Conversion changed the line value.")
+                    result.iat[position, result.columns.get_loc(price_col)] = converted_price
+                    entry.update(original_price=str(price), price=str(converted_price), line_value=str(line_value))
+                audit.append(entry)
         except (InvalidOperation, ValueError, ArithmeticError) as exc:
             raise ValueError(f"Excel row {position + 2}, item {supplier}: {exc}") from exc
     return result, audit
