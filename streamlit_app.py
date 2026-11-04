@@ -37,7 +37,7 @@ import portal_csv_export
 importlib.reload(portal_csv_export)
 from portal_csv_export import portal_csv
 from bulk_import import render_bulk_import
-from download_center import export_callback, render_download_center
+from download_center import export_callback, render_shared_storage
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
 
@@ -240,7 +240,7 @@ downloaded as CSV. Imports do not delete existing records.
 After database changes, rerun mapping from the original document.
 """)
 
-render_download_center()
+render_shared_storage()
 st.toggle("Debug logs", key="_debug", value=False)
 
 try:
