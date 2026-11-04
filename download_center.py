@@ -28,16 +28,20 @@ def client(config):
 def save_export(storage, filename, data, mime):
     if not re.fullmatch(EXPORT_FILENAME, filename) or not 0 < len(data) <= MAX_BYTES:
         raise ValueError("Only XLSX, CSV, and PRN exports up to 25 MB can be shared.")
-    key = f"{PREFIX}{uuid4().hex}/{filename}"
+    stem, extension = filename.rsplit(".", 1)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    key = f"{PREFIX}{stem}_{timestamp}_{uuid4().hex[:12]}.{extension}"
     storage.put_object(Bucket=BUCKET, Key=key, Body=data, ContentType=mime, CacheControl="private, no-store")
     return key
 
 
 def list_exports(storage, now=None, expired=False):
     cutoff = (now or datetime.now(timezone.utc)) - RETENTION
+    legacy_key = rf"{PREFIX}[a-f0-9]{{32}}/{EXPORT_FILENAME}"
+    flat_key = rf"{PREFIX}[A-Za-z0-9_.-]{{1,120}}_[0-9]{{8}}-[0-9]{{6}}_[a-f0-9]{{12}}\.(?:xlsx|csv|prn)"
     for page in storage.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix=PREFIX):
         for obj in page.get("Contents", []):
-            if re.fullmatch(rf"{PREFIX}[a-f0-9]{{32}}/{EXPORT_FILENAME}", obj["Key"]):
+            if re.fullmatch(rf"(?:{legacy_key}|{flat_key})", obj["Key"]):
                 if (obj["LastModified"] <= cutoff) == expired:
                     yield obj
 
