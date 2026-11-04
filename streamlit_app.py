@@ -37,6 +37,7 @@ import portal_csv_export
 importlib.reload(portal_csv_export)
 from portal_csv_export import portal_csv
 from bulk_import import render_bulk_import
+from download_center import export_callback, render_shared_storage
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
 
@@ -239,6 +240,7 @@ downloaded as CSV. Imports do not delete existing records.
 After database changes, rerun mapping from the original document.
 """)
 
+render_shared_storage()
 st.toggle("Debug logs", key="_debug", value=False)
 
 try:
@@ -419,12 +421,14 @@ if st.session_state.get("mapped_ready", False):
     # -----------------------------------------------------------------------------
     # 2a) Simple export
     # -----------------------------------------------------------------------------
+    simple_excel = _excel_bytes({"Matched": matched, "Unmatched": unmatched})
     st.download_button(
         "Download Excel (Matched + Unmatched)",
-        data=_excel_bytes({"Matched": matched, "Unmatched": unmatched}),
+        data=simple_excel,
         file_name="mapping_result.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         key="dl_simple_both",
+        on_click=export_callback("mapping_result.xlsx", simple_excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
     )
 
     # -----------------------------------------------------------------------------
@@ -578,12 +582,14 @@ if st.session_state.get("mapped_ready", False):
         with st.expander("Preview (custom): Unmatched", expanded=False):
             st.dataframe(unmatched_out.head(200), use_container_width=True)
 
+        custom_excel = _excel_bytes({"Matched": matched_out, "Unmatched": unmatched_out})
         st.download_button(
             "⬇️ Download Excel (custom columns & order)",
-            data=_excel_bytes({"Matched": matched_out, "Unmatched": unmatched_out}),
+            data=custom_excel,
             file_name="mapping_custom.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="dl_both_custom",
+            on_click=export_callback("mapping_custom.xlsx", custom_excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         )
 
         st.markdown("#### Pallets PRN export")
@@ -623,7 +629,7 @@ if st.session_state.get("mapped_ready", False):
         else:
             try:
                 portal_data = portal_csv(matched_out)
-                st.download_button("Download Portal_export.csv", data=portal_data, file_name="Portal_export.csv", mime="text/csv", key="dl_portal_csv")
+                st.download_button("Download Portal_export.csv", data=portal_data, file_name="Portal_export.csv", mime="text/csv", key="dl_portal_csv", on_click=export_callback("Portal_export.csv", portal_data, "text/csv"))
             except ValueError as exc:
                 st.error(f"Portal CSV: {exc}")
     else:
