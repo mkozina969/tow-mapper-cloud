@@ -37,7 +37,7 @@ class WorkspaceTests(unittest.TestCase):
         self.app.secrets["download_center"] = {"enabled": True, "upload_key": "fixture-upload-key-123456789"}
 
     def navigate(self, name):
-        self.app.radio(key="tow_navigation").set_value(name).run()
+        next(radio for radio in self.app.radio if radio.label == "Sections").set_value(name).run()
         self.assertFalse(self.app.exception)
 
     def button(self, label):
@@ -51,7 +51,7 @@ class WorkspaceTests(unittest.TestCase):
     def test_protected_sections_require_pin_before_database_access(self):
         for section in ("Crosswalk Mapping", "UoM Conversion"):
             app = AppTest.from_file(str(APP), default_timeout=30)
-            app.session_state["tow_navigation"] = section
+            app.session_state["tow_navigation_0"] = section
             self.app = app.run()
             self.assertFalse(self.app.exception)
             self.unlock("wrong-pin")
@@ -65,7 +65,7 @@ class WorkspaceTests(unittest.TestCase):
             "packing.csv", b"ProductNumber,Quantity,Pallet\nDEMO-1,24,PAL01\nDEMO-2,3,PAL02\n"
         )
         self.app.run()
-        self.assertEqual(self.app.radio(key="tow_navigation").value, "Import Center")
+        self.assertEqual(next(radio for radio in self.app.radio if radio.label == "Sections").value, "Import Center")
         self.app.text_input(key="shared_upload_key").set_value("fixture-upload-key-123456789").run()
         self.app.checkbox(key="share_finished_exports").check().run()
         self.app.selectbox(key="vendor_select").set_value("DEMO").run()

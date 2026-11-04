@@ -80,7 +80,8 @@ def render_shell():
         st.markdown('<div class="tow-preview-label">Workspace</div>', unsafe_allow_html=True)
         with st.container(key="tow_sidebar_nav"):
             section = st.radio(
-                "Sections", list(SECTIONS), key="tow_navigation", label_visibility="collapsed",
+                "Sections", list(SECTIONS), key=f"tow_navigation_{st.session_state.get('tow_upload_epoch', 0)}",
+                label_visibility="collapsed",
                 format_func=lambda name: f"{SECTIONS[name]}   {name}",
             )
         st.divider()
