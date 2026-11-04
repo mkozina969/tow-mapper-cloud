@@ -44,7 +44,13 @@ import download_center
 importlib.reload(download_center)
 from download_center import export_callback, render_shared_storage
 
-st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
+from mapper_ui import render_preview_section, render_shell, supplier_upload
+
+st.set_page_config(page_title="TOW Mapper Pro", layout="wide", initial_sidebar_state="expanded")
+section = render_shell()
+if section != "Import Center":
+    render_preview_section(section)
+    st.stop()
 
 # =============================================================================
 # Helpers (PURE DATA ONLY; cache allowed)
@@ -194,7 +200,7 @@ def columns_sortable_with_apply(preferred_order: List[str]) -> Optional[List[str
 # Main Script Starts Here (NO CACHING)
 # =============================================================================
 
-st.title("Supplier → TOW Mapper (Developer DB)")
+st.title("Import Center")
 with st.expander("How to use", expanded=False):
     st.markdown("""
 **1. Select the vendor and upload your file**
@@ -301,7 +307,7 @@ st.caption("Ostavi prazno za GLOBAL mapiranja (vrijedi za sve vendore).")
 # Upload invoice
 # =============================================================================
 st.subheader("1) Upload supplier invoice (Excel / CSV / PDF)")
-uploaded = st.file_uploader("Drag & drop ili odaberi datoteku", type=["xlsx", "xls", "csv", "pdf"], key="uploader")
+uploaded = supplier_upload()
 source_key = (vendor, hashlib.sha256(uploaded.getvalue()).hexdigest() if uploaded else None)
 if st.session_state.get("uom_source_key") != source_key:
     st.session_state["mapped_ready"] = False
@@ -373,8 +379,8 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
     )
 
     st.caption("UoM conversion uses active rules for the selected vendor. Upload the original supplier invoice.")
-    quantity_col = st.selectbox("Quantity column", ["(select)"] + list(preview_df.columns))
-    price_col = st.selectbox("Unit price column", ["(no price)"] + list(preview_df.columns), help="Leave at (no price) for packing lists. Quantity conversion still applies.")
+    quantity_col = st.selectbox("Quantity column", ["(select)"] + list(preview_df.columns), key="quantity_column")
+    price_col = st.selectbox("Unit price column", ["(no price)"] + list(preview_df.columns), key="unit_price_column", help="Leave at (no price) for packing lists. Quantity conversion still applies.")
     mapping_columns = (supplier_col, quantity_col, price_col)
     if st.session_state.get("uom_mapping_columns") != mapping_columns:
         st.session_state["mapped_ready"] = False
@@ -475,27 +481,29 @@ if st.session_state.get("mapped_ready", False):
     with st.expander("Optional: dodatne kolone (Invoice, Item, vendor_id, location, date)", expanded=True):
         cA, cB, cC, cD, cE = st.columns([1, 1, 1.2, 1.2, 1.7])
         with cA:
-            invoice_label = st.text_input("Constant value for 'Invoice'", value="Invoice")
+            invoice_label = st.text_input("Constant value for 'Invoice'", value="Invoice", key="export_invoice_label")
         with cB:
-            item_label = st.text_input("Constant value for 'Item'", value="Item")
+            item_label = st.text_input("Constant value for 'Item'", value="Item", key="export_item_label")
         with cC:
             vendor_to_stamp = st.text_input(
                 "vendor_id to stamp on export",
-                value=(vendor if vendor != "" else "GLOBAL")
+                value=(vendor if vendor != "" else "GLOBAL"),
+                key=f"export_vendor_stamp_{vendor}"
             ).strip().upper() or "GLOBAL"
         with cD:
-            location_text = st.text_input("Constant value for 'Location'", value="H00")
+            location_text = st.text_input("Constant value for 'Location'", value="H00", key="export_location")
         with cE:
-            date_manual_raw = st.text_input("Manual Date (HR: DD.MM.YY ili DD.MM.YYYY)", value="")
+            date_manual_raw = st.text_input("Manual Date (HR: DD.MM.YY ili DD.MM.YYYY)", value="", key="export_manual_date")
 
         date_options = ["(none)"] + all_cols_now
-        date_choice = st.selectbox("Pick Date column from uploaded file (optional)", options=date_options, index=0)
+        date_choice = st.selectbox("Pick Date column from uploaded file (optional)", options=date_options, index=0, key="export_date_column")
 
         date_output_format = st.selectbox(
             "Output date format",
             options=["DD.MM.YY", "DD.MM.YYYY", "YYYY-MM-DD (ISO)"],
             index=0,
-            help="Kako će se datum zapisati u exportu."
+            help="Kako će se datum zapisati u exportu.",
+            key="export_date_format"
         )
 
     def _try_parse_manual(raw: str):
@@ -589,6 +597,7 @@ if st.session_state.get("mapped_ready", False):
         text_cols = st.multiselect(
             "Force these columns to TEXT (strings) in the exported Excel",
             options=export_cols,
+            key="export_text_columns",
             help="Koristi za šifre (da Excel ne makne vodeće nule). Dodaj 'date' ovdje ako želiš spriječiti Excel da interpretira datum."
         )
 
