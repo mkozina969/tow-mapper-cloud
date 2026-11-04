@@ -9,6 +9,7 @@ BUCKET = "tow-mapper-exports"
 PREFIX = "exports/"
 RETENTION = timedelta(days=7)
 MAX_BYTES = 25 * 1024 * 1024
+EXPORT_FILENAME = r"[A-Za-z0-9_.-]{1,120}\.(?:xlsx|csv|prn)"
 
 
 def client(config):
@@ -25,8 +26,8 @@ def client(config):
 
 
 def save_export(storage, filename, data, mime):
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,120}\.(xlsx|csv)", filename) or not 0 < len(data) <= MAX_BYTES:
-        raise ValueError("Only XLSX and CSV exports up to 25 MB can be shared.")
+    if not re.fullmatch(EXPORT_FILENAME, filename) or not 0 < len(data) <= MAX_BYTES:
+        raise ValueError("Only XLSX, CSV, and PRN exports up to 25 MB can be shared.")
     key = f"{PREFIX}{uuid4().hex}/{filename}"
     storage.put_object(Bucket=BUCKET, Key=key, Body=data, ContentType=mime, CacheControl="private, no-store")
     return key
@@ -36,7 +37,7 @@ def list_exports(storage, now=None, expired=False):
     cutoff = (now or datetime.now(timezone.utc)) - RETENTION
     for page in storage.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix=PREFIX):
         for obj in page.get("Contents", []):
-            if re.fullmatch(r"exports/[a-f0-9]{32}/[A-Za-z0-9_.-]{1,120}\.(xlsx|csv)", obj["Key"]):
+            if re.fullmatch(rf"{PREFIX}[a-f0-9]{{32}}/{EXPORT_FILENAME}", obj["Key"]):
                 if (obj["LastModified"] <= cutoff) == expired:
                     yield obj
 
@@ -82,7 +83,7 @@ def render_shared_storage():
         if not _access(st):
             st.caption("Enter the team upload key to enable shared exports.")
             return
-        st.checkbox("Save a shared copy when I download an Excel or Portal CSV export", key="share_finished_exports")
+        st.checkbox("Save a shared copy when I download a mapping export", key="share_finished_exports")
         st.caption("Retrieve shared files from the private tow-mapper-exports bucket using your Neon storage access.")
         if st.session_state.get("last_shared_export"):
             st.code(st.session_state["last_shared_export"], language=None)
