@@ -120,6 +120,8 @@ def supplier_upload():
         key="uploader", on_change=_remember_upload,
     )
     if upload is not None:
+        st.session_state["tow_retained_upload"] = (upload.name, upload.getvalue())
+        st.caption(f"Current file: {upload.name}")
         return upload
 
     saved = st.session_state.get("tow_retained_upload")
@@ -140,5 +142,3 @@ def _remember_upload():
     upload = st.session_state.get("uploader")
     if upload is None:
         st.session_state.pop("tow_retained_upload", None)
-    else:
-        st.session_state["tow_retained_upload"] = (upload.name, upload.getvalue())
