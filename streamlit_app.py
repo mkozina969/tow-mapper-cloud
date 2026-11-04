@@ -38,6 +38,8 @@ import portal_csv_export
 importlib.reload(portal_csv_export)
 from portal_csv_export import portal_csv
 from bulk_import import render_bulk_import
+import download_center
+importlib.reload(download_center)
 from download_center import export_callback, render_shared_storage
 
 st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="wide")
@@ -624,7 +626,7 @@ if st.session_state.get("mapped_ready", False):
         else:
             try:
                 prn_data = pallets_prn(matched_out, *export_cols)
-                st.download_button("Download Pallets PRN", data=prn_data, file_name=pallets_filename, mime="application/octet-stream", key="dl_pallets_prn")
+                st.download_button("Download Pallets PRN", data=prn_data, file_name=pallets_filename, mime="application/octet-stream", key="dl_pallets_prn", on_click=export_callback(pallets_filename, prn_data, "application/octet-stream"))
                 st.caption(f"{len(matched_out)} rows; 100 characters per row. Leading zeros in text codes are preserved.")
             except ValueError as exc:
                 st.error(f"Pallets PRN: {exc}")
@@ -639,7 +641,7 @@ if st.session_state.get("mapped_ready", False):
         else:
             try:
                 regular_data = regular_prn(matched_out, *export_cols)
-                st.download_button("Regular export", data=regular_data, file_name=regular_filename, mime="application/octet-stream", key="dl_regular_prn")
+                st.download_button("Regular export", data=regular_data, file_name=regular_filename, mime="application/octet-stream", key="dl_regular_prn", on_click=export_callback(regular_filename, regular_data, "application/octet-stream"))
                 st.caption(f"{len(matched_out)} rows; 40 characters per row.")
             except ValueError as exc:
                 st.error(f"Regular PRN: {exc}")
