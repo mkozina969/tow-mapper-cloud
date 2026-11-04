@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import csv
 import hashlib
 import importlib
@@ -44,6 +45,26 @@ st.set_page_config(page_title="Supplier → TOW Mapper (Developer DB)", layout="
 # =============================================================================
 # Helpers (PURE DATA ONLY; cache allowed)
 # =============================================================================
+def _export_filename(label: str, default: str, key: str) -> str:
+    default_stem, extension = default.rsplit(".", 1)
+    suffix = f".{extension}"
+    name = st.text_input(
+        label,
+        key=key,
+        placeholder=default_stem,
+        help=f"Leave blank for {default}. The {suffix} extension is added automatically.",
+    ).strip()
+    if name.lower().endswith(suffix):
+        name = name[:-len(suffix)]
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("._")[:120].rstrip(".")
+    if re.fullmatch(r"CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9]", stem.split(".")[0], re.IGNORECASE):
+        stem = f"_{stem[:119]}"
+    filename = f"{stem or default_stem}{suffix}"
+    if name:
+        st.caption(f"Export filename: {filename}")
+    return filename
+
+
 @st.cache_data(show_spinner=False)
 def _crosswalk_count() -> int:
     return int(_read_sql("SELECT COUNT(*) AS n FROM crosswalk").iloc[0]["n"])
@@ -582,18 +603,20 @@ if st.session_state.get("mapped_ready", False):
         with st.expander("Preview (custom): Unmatched", expanded=False):
             st.dataframe(unmatched_out.head(200), use_container_width=True)
 
+        custom_filename = _export_filename("Custom Excel filename", "mapping_custom.xlsx", "custom_export_filename")
         custom_excel = _excel_bytes({"Matched": matched_out, "Unmatched": unmatched_out})
         st.download_button(
             "⬇️ Download Excel (custom columns & order)",
             data=custom_excel,
-            file_name="mapping_custom.xlsx",
+            file_name=custom_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             key="dl_both_custom",
-            on_click=export_callback("mapping_custom.xlsx", custom_excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            on_click=export_callback(custom_filename, custom_excel, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         )
 
         st.markdown("#### Pallets PRN export")
         st.caption("Uses the custom export selection above. Select exactly three columns, ordered: TOW code, quantity, pallet number. Fixed widths: 20 / 30 / 50; no header.")
+        pallets_filename = _export_filename("Pallets PRN filename", "Pallets_import.prn", "pallets_export_filename")
         if not unmatched_out.empty:
             st.warning("Resolve unmatched rows before downloading the pallets PRN so no invoice rows are omitted.")
         elif len(export_cols) != 3:
@@ -601,13 +624,14 @@ if st.session_state.get("mapped_ready", False):
         else:
             try:
                 prn_data = pallets_prn(matched_out, *export_cols)
-                st.download_button("Download Pallets_import.prn", data=prn_data, file_name="Pallets_import.prn", mime="application/octet-stream", key="dl_pallets_prn")
+                st.download_button("Download Pallets PRN", data=prn_data, file_name=pallets_filename, mime="application/octet-stream", key="dl_pallets_prn")
                 st.caption(f"{len(matched_out)} rows; 100 characters per row. Leading zeros in text codes are preserved.")
             except ValueError as exc:
                 st.error(f"Pallets PRN: {exc}")
 
         st.markdown("#### Regular export")
         st.caption("Uses the same three applied export columns in their selected order. Fixed widths: 10 / 15 / 15; no headers or column names.")
+        regular_filename = _export_filename("Regular PRN filename", "Regular_export.prn", "regular_export_filename")
         if not unmatched_out.empty:
             st.warning("Resolve unmatched rows before downloading the regular PRN so no invoice rows are omitted.")
         elif len(export_cols) != 3:
@@ -615,13 +639,14 @@ if st.session_state.get("mapped_ready", False):
         else:
             try:
                 regular_data = regular_prn(matched_out, *export_cols)
-                st.download_button("Regular export", data=regular_data, file_name="Regular_export.prn", mime="application/octet-stream", key="dl_regular_prn")
+                st.download_button("Regular export", data=regular_data, file_name=regular_filename, mime="application/octet-stream", key="dl_regular_prn")
                 st.caption(f"{len(matched_out)} rows; 40 characters per row.")
             except ValueError as exc:
                 st.error(f"Regular PRN: {exc}")
 
         st.markdown("#### Portal CSV export")
         st.caption("Select ten columns in order: invoice number, Invoice, Item, blank, TOW code, quantity, unit price, date, Location, vendor_id. Semicolon separator, decimal commas, D.M.YYYY. dates; no headers.")
+        portal_filename = _export_filename("Portal CSV filename", "Portal_export.csv", "portal_export_filename")
         if not unmatched_out.empty:
             st.warning("Resolve unmatched rows before downloading the portal CSV so no invoice rows are omitted.")
         elif len(export_cols) != 10:
@@ -629,7 +654,7 @@ if st.session_state.get("mapped_ready", False):
         else:
             try:
                 portal_data = portal_csv(matched_out)
-                st.download_button("Download Portal_export.csv", data=portal_data, file_name="Portal_export.csv", mime="text/csv", key="dl_portal_csv", on_click=export_callback("Portal_export.csv", portal_data, "text/csv"))
+                st.download_button("Download Portal CSV", data=portal_data, file_name=portal_filename, mime="text/csv", key="dl_portal_csv", on_click=export_callback(portal_filename, portal_data, "text/csv"))
             except ValueError as exc:
                 st.error(f"Portal CSV: {exc}")
     else:
