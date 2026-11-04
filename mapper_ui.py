@@ -6,8 +6,8 @@ import streamlit as st
 
 
 SECTIONS = {
-    "Dashboard": "⌂",
     "Import Center": "↑",
+    "Dashboard": "⌂",
     "Crosswalk Mapping": "⇄",
     "UoM Conversion": "▦",
     "Download Center": "↓",
@@ -16,12 +16,10 @@ SECTIONS = {
     "Settings": "⚙",
 }
 SECTION_NOTES = {
-    "Crosswalk Mapping": "Use the existing PIN-protected mapping tools in Import Center.",
-    "UoM Conversion": "Use the existing PIN-protected conversion tools in Import Center.",
     "Download Center": "Use Neon Console to retrieve shared exports with your existing Neon access.",
     "Suppliers": "Select suppliers in Import Center. A dedicated supplier directory is planned.",
     "Reports": "Historical processing reports are planned.",
-    "Settings": "Administrative tools are available in Import Center and require the admin PIN.",
+    "Settings": "Crosswalk Mapping and UoM Conversion require the admin PIN.",
 }
 WORKSPACE_KEYS = (
     "_debug", "vendor_filter", "vendor_select", "supplier_col_select",
@@ -30,7 +28,7 @@ WORKSPACE_KEYS = (
     "export_date_column", "export_date_format", "export_text_columns",
     "portal_document", "portal_blank", "custom_export_filename", "pallets_export_filename",
     "regular_export_filename", "portal_export_filename", "shared_upload_key",
-    "share_finished_exports", "admin_add_action",
+    "share_finished_exports",
 )
 
 STYLE = """
@@ -86,6 +84,7 @@ def render_shell():
                 format_func=lambda name: f"{SECTIONS[name]}   {name}",
             )
         st.divider()
+        st.button("Reset session", on_click=_reset_session, help="Clear files, results, queued changes, and access for this browser session.")
         st.caption("TOW Mapper Pro · UI preview")
 
     st.markdown(
@@ -114,10 +113,17 @@ def render_preview_section(section):
         st.info(f"Section preview. {SECTION_NOTES[section]}")
 
 
+def _reset_session():
+    epoch = st.session_state.get("tow_upload_epoch", 0) + 1
+    st.session_state.clear()
+    st.session_state["tow_upload_epoch"] = epoch
+
+
 def supplier_upload():
+    upload_key = f"uploader_{st.session_state.get('tow_upload_epoch', 0)}"
     upload = st.file_uploader(
         "Drag & drop ili odaberi datoteku", type=["xlsx", "xls", "csv", "pdf"],
-        key="uploader", on_change=_remember_upload,
+        key=upload_key, on_change=_clear_removed_upload, args=(upload_key,),
     )
     if upload is not None:
         st.session_state["tow_retained_upload"] = (upload.name, upload.getvalue())
@@ -138,7 +144,7 @@ def supplier_upload():
     return restored
 
 
-def _remember_upload():
-    upload = st.session_state.get("uploader")
+def _clear_removed_upload(upload_key):
+    upload = st.session_state.get(upload_key)
     if upload is None:
         st.session_state.pop("tow_retained_upload", None)

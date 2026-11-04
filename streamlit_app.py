@@ -39,7 +39,7 @@ from prn_export import pallets_prn, regular_prn
 import portal_csv_export
 importlib.reload(portal_csv_export)
 from portal_csv_export import portal_csv
-from bulk_import import render_bulk_import
+from mapper_admin import render_crosswalk_admin, require_admin
 import download_center
 importlib.reload(download_center)
 from download_center import export_callback, render_shared_storage
@@ -48,7 +48,7 @@ from mapper_ui import render_preview_section, render_shell, supplier_upload
 
 st.set_page_config(page_title="TOW Mapper Pro", layout="wide", initial_sidebar_state="expanded")
 section = render_shell()
-if section != "Import Center":
+if section not in {"Import Center", "Crosswalk Mapping", "UoM Conversion"}:
     render_preview_section(section)
     st.stop()
 
@@ -137,8 +137,6 @@ def _engine() -> Engine:
         st.stop()
     return create_engine(db_url, pool_pre_ping=True)
 
-engine = _engine()
-
 def _read_sql(query: str, params: dict | None = None) -> pd.DataFrame:
     with engine.connect() as conn:
         return pd.read_sql(text(query), conn, params=params or {})
@@ -200,6 +198,28 @@ def columns_sortable_with_apply(preferred_order: List[str]) -> Optional[List[str
 # Main Script Starts Here (NO CACHING)
 # =============================================================================
 
+if section in {"Crosswalk Mapping", "UoM Conversion"}:
+    st.title(section)
+    require_admin()
+    engine = _engine()
+    if section == "Crosswalk Mapping":
+        render_crosswalk_admin(engine, _read_sql)
+    else:
+        import_vendor = st.session_state.get("vendor_select", "")
+        vendor_filter = st.text_input("Filter suppliers", key="uom_vendor_filter")
+        vendors = [vendor_id for vendor_id in _fetch_vendors(vendor_filter) if vendor_id]
+        if not vendor_filter and import_vendor and import_vendor not in vendors:
+            vendors.append(import_vendor)
+        selected_vendor = st.selectbox(
+            "Supplier", vendors,
+            index=vendors.index(import_vendor) if import_vendor in vendors else (0 if vendors else None),
+            key="uom_admin_vendor",
+        )
+        render_uom_admin(engine, selected_vendor or "")
+    st.stop()
+
+engine = _engine()
+
 st.title("Import Center")
 with st.expander("How to use", expanded=False):
     st.markdown("""
@@ -246,9 +266,9 @@ rather than truncated.
 
 **4. Admin - single entries and bulk imports**
 
-Enter the **Admin PIN** and click **Unlock**. In UoM Conversion, add, edit or disable
-conversion rules. Under Add a single mapping, save a mapping directly or add it to
-the queue. Use Live search to inspect existing mappings.
+Open **Crosswalk Mapping** or **UoM Conversion** from the sidebar and unlock with the
+**Admin PIN**. Crosswalk Mapping includes live search, prefill, and queued or direct
+updates. Use UoM Conversion to add, edit, or disable supplier conversion rules.
 
 To import multiple items, open the appropriate **Bulk import - XLSX / CSV** section.
 Download a template, replace the example row with your data, and upload a file
@@ -280,7 +300,7 @@ except Exception as e:
 
 vendors_map = _load_vendor_names()
 
-st.markdown("**Vendor**")
+st.subheader("1. Select supplier")
 vendor_filter = st.text_input("Filter vendors (substring / prefix)", value="", key="vendor_filter")
 vendors = _fetch_vendors(vendor_filter)
 
@@ -306,7 +326,8 @@ st.caption("Ostavi prazno za GLOBAL mapiranja (vrijedi za sve vendore).")
 # =============================================================================
 # Upload invoice
 # =============================================================================
-st.subheader("1) Upload supplier invoice (Excel / CSV / PDF)")
+st.subheader("2. Upload a source file")
+st.caption("Invoice, packing list, or another supported Excel, CSV, or PDF file.")
 uploaded = supplier_upload()
 source_key = (vendor, hashlib.sha256(uploaded.getvalue()).hexdigest() if uploaded else None)
 if st.session_state.get("uom_source_key") != source_key:
@@ -356,7 +377,7 @@ if uploaded is not None:
 # =============================================================================
 # 2) Map to TOW
 # =============================================================================
-st.subheader("2) Map to TOW")
+st.subheader("3. Run matching and apply conversions")
 
 c1, c2 = st.columns([1, 1])
 with c1:
@@ -435,6 +456,7 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
 
 # Show result if available
 if st.session_state.get("mapped_ready", False):
+    st.subheader("4. Review matched and unmatched results")
     audit = st.session_state.get("uom_audit", [])
     quantity_only = bool(audit) and "line_value" not in audit[0]
     if audit:
@@ -454,6 +476,7 @@ if st.session_state.get("mapped_ready", False):
     # -----------------------------------------------------------------------------
     # 2a) Simple export
     # -----------------------------------------------------------------------------
+    st.subheader("5. Configure and generate exports")
     simple_excel = _excel_bytes({"Matched": matched, "Unmatched": unmatched})
     st.download_button(
         "Download Excel (Matched + Unmatched)",
@@ -467,7 +490,7 @@ if st.session_state.get("mapped_ready", False):
     # -----------------------------------------------------------------------------
     # 2b) Custom export with Croatian date support
     # -----------------------------------------------------------------------------
-    st.subheader("3) Custom export (add columns + choose order)")
+    st.markdown("#### Custom export columns")
 
     invoice_label = "Invoice"
     item_label = "Item"
@@ -678,177 +701,3 @@ if st.session_state.get("mapped_ready", False):
         st.info("Select columns, drag to reorder, and press 'Apply changes' to update preview/export.")
 else:
     st.info("Učitaj datoteku i pokreni mapping.")
-
-# =============================================================================
-# Admin (PIN -> unlock) + Queue/Direct + Live search
-# =============================================================================
-st.divider()
-st.subheader("Admin - Add / Queue / Apply Mappings - Live search")
-
-expected_pin = os.getenv("ADMIN_PIN") or st.secrets.get("ADMIN_PIN", "")
-expected_pin = str(expected_pin).strip()
-
-c_pin1, c_pin2, c_pin3 = st.columns([5, 1, 2])
-with c_pin1:
-    pin_in = st.text_input("Admin PIN", type="password", key="admin_pin_input")
-with c_pin2:
-    if st.button("Unlock", key="btn_unlock"):
-        st.session_state["admin_unlocked"] = bool(expected_pin) and (str(pin_in).strip() == expected_pin)
-with c_pin3:
-    st.caption(f"PIN configured: {'✅' if expected_pin else '❌'}")
-
-if not st.session_state.get("admin_unlocked", False):
-    st.info("Admin locked. Unesi PIN i klikni **Unlock**.")
-    st.stop()
-
-st.success("Admin unlocked.")
-render_uom_admin(engine, vendor)
-
-st.markdown("### Add a single mapping")
-
-with st.form("admin_add_single"):
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        vendor_in = st.text_input("vendor_id (leave blank for GLOBAL)", value=st.session_state.get("vendor_prefill", ""))
-    with c2:
-        supp_in = st.text_input("supplier_id", value=st.session_state.get("supplier_prefill", ""))
-    with c3:
-        tow_in = st.text_input("tow_code", value=st.session_state.get("tow_prefill", ""))
-
-    st.caption("Action…")
-    action = st.radio(
-        label="Action…",
-        options=["Queue (downloadable CSV)", "Directly to DB (upsert)"],
-        horizontal=True,
-        key="admin_add_action"
-    )
-
-    submitted = st.form_submit_button("Add")
-    if submitted:
-        v = (vendor_in or "").strip()
-        s = (supp_in or "").strip()
-        t = (tow_in or "").strip()
-
-        if not s:
-            st.error("supplier_id is required.")
-        else:
-            if action.startswith("Queue"):
-                queue_cols = ["vendor_id", "supplier_id", "tow_code"]
-                if "updates_df" not in st.session_state:
-                    st.session_state["updates_df"] = pd.DataFrame(columns=queue_cols)
-                st.session_state["updates_df"] = pd.concat(
-                    [st.session_state["updates_df"], pd.DataFrame([{"vendor_id": v, "supplier_id": s, "tow_code": t}])],
-                    ignore_index=True
-                )
-                st.success("Queued. (updates.csv u dnu sekcije)")
-            else:
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(text("""
-                            INSERT INTO crosswalk (vendor_id, supplier_id, tow_code)
-                            VALUES (:v, :s, :t)
-                            ON CONFLICT (vendor_id, supplier_id)
-                            DO UPDATE SET tow_code = EXCLUDED.tow_code
-                        """), {"v": v, "s": s, "t": t})
-                    st.success("Upsert OK.")
-                except Exception as e:
-                    st.error(f"DB error: {e}")
-
-render_bulk_import(engine, "mapping")
-
-st.markdown("### Apply queued CSV to DB")
-
-if "updates_df" in st.session_state and not st.session_state["updates_df"].empty:
-    dfq = st.session_state["updates_df"].copy()
-    st.dataframe(dfq, use_container_width=True, height=200)
-
-    qcsv = dfq.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        "Download updates.csv",
-        data=qcsv,
-        file_name="updates.csv",
-        mime="text/csv",
-        key="dl_updates_csv"
-    )
-
-    c_apply1, c_apply2 = st.columns([1, 1])
-    with c_apply1:
-        if st.button("Apply updates.csv to DB", key="btn_apply_updates"):
-            try:
-                with engine.begin() as conn:
-                    for _, r in dfq.iterrows():
-                        conn.execute(text("""
-                            INSERT INTO crosswalk (vendor_id, supplier_id, tow_code)
-                            VALUES (:v, :s, :t)
-                            ON CONFLICT (vendor_id, supplier_id)
-                            DO UPDATE SET tow_code = EXCLUDED.tow_code
-                        """), {
-                            "v": str(r.get("vendor_id", "")),
-                            "s": str(r.get("supplier_id", "")),
-                            "t": str(r.get("tow_code", "")),
-                        })
-                st.success("updates.csv applied to DB.")
-            except Exception as e:
-                st.error(f"Apply failed: {e}")
-    with c_apply2:
-        if st.button("Clear queued items", key="btn_clear_updates"):
-            st.session_state["updates_df"] = pd.DataFrame(columns=["vendor_id", "supplier_id", "tow_code"])
-            st.info("Queue cleared.")
-else:
-    st.caption("No updates.csv yet.")
-
-st.markdown("### Live search / inspect")
-
-c_f1, c_f2, c_f3 = st.columns([2.2, 2.2, 1.2])
-with c_f1:
-    vendor_filter_live = st.text_input("vendor_id filter (blank = ALL)", value=st.session_state.get("ls_vendor", ""))
-with c_f2:
-    supp_filter_live = st.text_input("supplier_id search (exact or contains)", value=st.session_state.get("ls_supplier", ""))
-with c_f3:
-    exact = st.checkbox("Exact supplier match", value=st.session_state.get("ls_exact", False))
-
-st.session_state["ls_vendor"] = vendor_filter_live
-st.session_state["ls_supplier"] = supp_filter_live
-st.session_state["ls_exact"] = exact
-
-clauses, params = [], {}
-if vendor_filter_live != "":
-    clauses.append("c.vendor_id = :v1")
-    params["v1"] = vendor_filter_live
-if supp_filter_live != "":
-    if exact:
-        clauses.append("c.supplier_id = :s1")
-        params["s1"] = supp_filter_live
-    else:
-        clauses.append("c.supplier_id ILIKE :s1")
-        params["s1"] = f"%{supp_filter_live}%"
-
-where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
-q = f"""
-    SELECT c.vendor_id, v.vendor_name, c.supplier_id, c.tow_code
-    FROM crosswalk c
-    LEFT JOIN vendors v ON v.vendor_id = c.vendor_id
-    {where}
-    ORDER BY c.vendor_id, c.supplier_id
-    LIMIT 500
-"""
-
-try:
-    df_res = _read_sql(q, params)
-    st.caption(f"500 results shown (max 500) — shown: {len(df_res):,}")
-    st.dataframe(df_res, use_container_width=True, height=260)
-
-    st.markdown("##### Pick row as prefill")
-    c_idx, c_btn = st.columns([1, 2])
-    with c_idx:
-        idx = st.number_input(" ", min_value=0, max_value=max(len(df_res)-1, 0), value=0, step=1, label_visibility="collapsed")
-    with c_btn:
-        if st.button("Prefill Admin form from row", key="btn_prefill"):
-            if not df_res.empty:
-                row = df_res.iloc[int(idx)]
-                st.session_state["vendor_prefill"] = str(row.get("vendor_id", "") or "")
-                st.session_state["supplier_prefill"] = str(row.get("supplier_id", "") or "")
-                st.session_state["tow_prefill"] = str(row.get("tow_code", "") or "")
-                st.success("Prefilled — skrolaj gore do 'Add a single mapping'.")
-except Exception as e:
-    st.error(f"Search failed: {e}")
