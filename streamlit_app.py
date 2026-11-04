@@ -24,6 +24,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 import streamlit_sortables
+import uom_conversion
+importlib.reload(uom_conversion)
 from uom_conversion import convert_invoice
 import uom_admin
 importlib.reload(uom_admin)
@@ -204,12 +206,11 @@ pallet numbers as text in Excel to preserve leading zeros.
 **2. Run mapping and check conversions**
 
 Select the column containing the supplier item code (**SUPPLIER code**).
-For items with active conversion rules, also select **Quantity column** and
-**Unit price column**. Use the actual price per piece, not the line total or weight.
+For items with active conversion rules, also select **Quantity column**. For a packing list without prices, leave **Unit price column** at **(no price)**. For an invoice, select the actual price per piece.
 Click **Run mapping**, then review Matched / Unmatched and the **UoM conversion audit**.
 
 An active rule for the selected vendor divides quantity by the divider and multiplies
-unit price by the same number. The line value stays unchanged. Quantities that are
+unit price by the same number when a price column is selected. For invoices, the line value stays unchanged. Quantities that are
 not divisible by the divider, and invalid numbers, block mapping. Items without
 a rule stay unchanged. Always rerun from the original document - do not upload an
 already converted export as a source invoice.
@@ -373,7 +374,7 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
 
     st.caption("UoM conversion uses active rules for the selected vendor. Upload the original supplier invoice.")
     quantity_col = st.selectbox("Quantity column", ["(select)"] + list(preview_df.columns))
-    price_col = st.selectbox("Unit price column", ["(select)"] + list(preview_df.columns))
+    price_col = st.selectbox("Unit price column", ["(no price)"] + list(preview_df.columns), help="Leave at (no price) for packing lists. Quantity conversion still applies.")
     mapping_columns = (supplier_col, quantity_col, price_col)
     if st.session_state.get("uom_mapping_columns") != mapping_columns:
         st.session_state["mapped_ready"] = False
@@ -410,9 +411,9 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
             rules = dict(zip(rules_df["supplier_id"], rules_df["divider"]))
             audit = []
             if set(df_out["supplier_id"]) & set(rules):
-                if quantity_col == "(select)" or price_col == "(select)":
-                    raise ValueError("Select quantity and unit price columns for packaging conversion.")
-                df_out, audit = convert_invoice(df_out, rules, quantity_col, price_col)
+                if quantity_col == "(select)":
+                    raise ValueError("Select a quantity column for packaging conversion.")
+                df_out, audit = convert_invoice(df_out, rules, quantity_col, None if price_col == "(no price)" else price_col)
             st.session_state["uom_audit"] = audit
 
             st.session_state["matched"] = df_out[df_out["tow"].notna()].copy()
@@ -428,8 +429,11 @@ if isinstance(preview_df, pd.DataFrame) and not preview_df.empty:
 
 # Show result if available
 if st.session_state.get("mapped_ready", False):
-    if st.session_state.get("uom_audit"):
-        with st.expander("UoM conversion audit — line values verified"):
+    audit = st.session_state.get("uom_audit", [])
+    quantity_only = bool(audit) and "line_value" not in audit[0]
+    if audit:
+        audit_label = "quantities only" if quantity_only else "line values verified"
+        with st.expander(f"UoM conversion audit — {audit_label}"):
             st.dataframe(pd.DataFrame(st.session_state["uom_audit"]), use_container_width=True)
     matched = st.session_state["matched"]
     unmatched = st.session_state["unmatched"]
@@ -651,6 +655,8 @@ if st.session_state.get("mapped_ready", False):
         portal_filename = _export_filename("Portal CSV filename", "Portal_export.csv", "portal_export_filename")
         if not unmatched_out.empty:
             st.warning("Resolve unmatched rows before downloading the portal CSV so no invoice rows are omitted.")
+        elif quantity_only:
+            st.info("For Portal CSV, select the invoice unit price column and run mapping again.")
         elif len(export_cols) != 10:
             st.info("Select exactly ten columns above and apply changes. Optional Portal CSV fields can supply an invoice number and blank column.")
         else:
