@@ -44,10 +44,16 @@ import download_center
 importlib.reload(download_center)
 from download_center import export_callback, render_shared_storage
 
-from mapper_ui import render_preview_section, render_shell, supplier_upload
+from mapper_ui import render_dashboard, render_preview_section, render_shell, supplier_upload
 
 st.set_page_config(page_title="TOW Mapper Pro", layout="wide", initial_sidebar_state="expanded")
 section = render_shell()
+if section == "Download Center":
+    download_center.render_download_center(st)
+    st.stop()
+if section == "Dashboard":
+    render_dashboard()
+    st.stop()
 if section not in {"Import Center", "Crosswalk Mapping", "UoM Conversion"}:
     render_preview_section(section)
     st.stop()

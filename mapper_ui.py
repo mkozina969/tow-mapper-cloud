@@ -4,6 +4,8 @@ from io import BytesIO
 
 import streamlit as st
 
+import download_center
+
 
 SECTIONS = {
     "Import Center": "↑",
@@ -16,7 +18,6 @@ SECTIONS = {
     "Settings": "⚙",
 }
 SECTION_NOTES = {
-    "Download Center": "Use Neon Console to retrieve shared exports with your existing Neon access.",
     "Suppliers": "Select suppliers in Import Center. A dedicated supplier directory is planned.",
     "Reports": "Historical processing reports are planned.",
     "Settings": "Crosswalk Mapping and UoM Conversion require the admin PIN.",
@@ -59,7 +60,8 @@ STYLE = """
 .tow-brand-subtitle { color: #DAE8FA; font-size: .88rem; }
 .tow-preview-label { color: #64748B; font-size: .77rem; font-weight: 700;
     letter-spacing: .08em; text-transform: uppercase; margin-bottom: .45rem; }
-.st-key-tow_workspace_card, .st-key-tow_activity_card {
+.st-key-tow_workspace_card, .st-key-tow_activity_card,
+.st-key-tow_recent_exports {
     background: white; border-radius: .65rem; box-shadow: 0 2px 6px #0f2b5b0c;
 }
 </style>
@@ -76,11 +78,12 @@ def _preserve_workspace():
 
 def render_shell():
     st.markdown(STYLE, unsafe_allow_html=True)
+    navigation_key = f"tow_navigation_{st.session_state.get('tow_upload_epoch', 0)}"
     with st.sidebar:
         st.markdown('<div class="tow-preview-label">Workspace</div>', unsafe_allow_html=True)
         with st.container(key="tow_sidebar_nav"):
             section = st.radio(
-                "Sections", list(SECTIONS), key=f"tow_navigation_{st.session_state.get('tow_upload_epoch', 0)}",
+                "Sections", list(SECTIONS), key=navigation_key,
                 label_visibility="collapsed",
                 format_func=lambda name: f"{SECTIONS[name]}   {name}",
             )
@@ -101,21 +104,50 @@ def render_shell():
 
 def render_preview_section(section):
     st.title(section)
-    if section == "Dashboard":
-        st.caption("Import, map, and prepare supplier data for NAV.")
-        with st.container(key="tow_dashboard"):
-            with st.container(border=True, key="tow_workspace_card"):
-                st.markdown("#### Supplier processing workspace")
-                st.write("Open **Import Center** to upload a supplier file, review mapping results, and export for NAV.")
-            with st.container(border=True, key="tow_activity_card"):
-                st.markdown("#### Processing activity")
-                st.caption("Historical activity will be available in a later phase.")
-    else:
-        st.info(f"Section preview. {SECTION_NOTES[section]}")
+    st.info(f"Section preview. {SECTION_NOTES[section]}")
+
+
+def _open_section(section):
+    navigation_key = f"tow_navigation_{st.session_state.get('tow_upload_epoch', 0)}"
+    st.session_state[navigation_key] = section
+
+
+def render_dashboard():
+    st.title("Dashboard")
+    st.caption("Import, map, and prepare supplier data for NAV.")
+    st.markdown("#### Quick actions")
+    actions = ("Import Center", "Crosswalk Mapping", "UoM Conversion", "Download Center")
+    for column, name in zip(st.columns(len(actions)), actions):
+        with column:
+            st.button(f"{SECTIONS[name]}  {name}", on_click=_open_section, args=(name,), use_container_width=True)
+
+    with st.container(border=True, key="tow_workspace_card"):
+        st.markdown("#### Current processing session")
+        if st.session_state.get("mapped_ready"):
+            matched = len(st.session_state["matched"])
+            unmatched = len(st.session_state["unmatched"])
+            metrics = (
+                ("Processed rows", matched + unmatched),
+                ("Matched items", matched),
+                ("Unmatched items", unmatched),
+                ("UoM conversions applied", len(st.session_state.get("uom_audit", []))),
+            )
+            for column, (label, count) in zip(st.columns(len(metrics)), metrics):
+                column.metric(label, f"{count:,}")
+        else:
+            st.caption("Run mapping in Import Center to see results for this session.")
+
+    with st.container(border=True, key="tow_recent_exports"):
+        download_center.render_recent_exports(st)
+
+    with st.container(border=True, key="tow_activity_card"):
+        st.markdown("#### Processing history")
+        st.caption("Processing history is unavailable because completed runs are not recorded.")
 
 
 def _reset_session():
     epoch = st.session_state.get("tow_upload_epoch", 0) + 1
+    download_center.revoke_download_access(st)
     st.session_state.clear()
     st.session_state["tow_upload_epoch"] = epoch
 
