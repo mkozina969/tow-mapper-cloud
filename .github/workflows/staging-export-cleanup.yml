@@ -1,0 +1,66 @@
+name: Staging Neon export cleanup
+
+on:
+  push:
+    branches: [feature/tow-mapper-pro-ui]
+    paths:
+      - '.github/workflows/staging-export-cleanup.yml'
+      - 'cleanup_download_center.py'
+      - 'download_center.py'
+      - 'test_staging_cleanup.py'
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Cleanup mode
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-neon-export-cleanup
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.repository == 'mkozina969/tow-mapper-cloud' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest -v test_staging_cleanup
+
+  cleanup:
+    if: >-
+      github.repository == 'mkozina969/tow-mapper-cloud' &&
+      ((github.event_name == 'workflow_dispatch' &&
+        (github.ref == 'refs/heads/feature/tow-mapper-pro-ui' || github.ref == 'refs/heads/main')) ||
+       (github.event_name == 'schedule' && github.ref == 'refs/heads/main' &&
+        vars.ENABLE_STAGING_EXPORT_CLEANUP == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: neon-staging-cleanup
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: python3 -m venv .cleanup-venv
+      - run: .cleanup-venv/bin/python -m pip install 'boto3==1.40.45'
+      - name: Validate staging target and run cleanup
+        env:
+          AWS_ENDPOINT_URL_S3: ${{ vars.NEON_STAGING_STORAGE_ENDPOINT }}
+          AWS_REGION: eu-central-1
+          AWS_ACCESS_KEY_ID: ${{ secrets.NEON_STAGING_STORAGE_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NEON_STAGING_STORAGE_SECRET_ACCESS_KEY }}
+          APPLY: ${{ github.event_name == 'schedule' || inputs.mode == 'apply' }}
+        run: |
+          args=(--staging-only)
+          if [[ "$APPLY" == true ]]; then
+            args+=(--apply)
+          fi
+          .cleanup-venv/bin/python cleanup_download_center.py "${args[@]}"

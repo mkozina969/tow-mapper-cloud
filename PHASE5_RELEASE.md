@@ -1,7 +1,14 @@
 # TOW Mapper Pro Phase 5 release checklist
 
-**Decision: NOT READY.** The separate Streamlit deployment, real staging file
-transfers, and observed hourly cleanup are release gates.
+**Decision: NOT READY.** The staging preview and live file transfers passed.
+The hourly cleanup job and deletion of an expired object in staging still
+require live verification.
+
+The [staging preview](https://tow-mapper-pro-preview.streamlit.app/) used the
+synthetic DEMO invoice. Excel (5,414 bytes), Pallets PRN (204 bytes), Regular
+PRN (84 bytes), and Portal CSV (114 bytes) were saved to staging Neon and
+retrieved through Download Center. Each retrieved copy matched its original
+export's SHA-256 hash.
 
 ## Isolated staging and manual Streamlit deployment
 
@@ -75,79 +82,40 @@ DEMO-GLOBAL,3,2.00,PAL0002
    the list and staging bucket. Reset the session and confirm both
    download and admin access must be unlocked again.
 
-## Managed cleanup schedule
+## GitHub Actions cleanup
 
-The script defaults to dry run. It lists only recognized export object keys
-under `exports/` in the configured Neon branch and `tow-mapper-exports`
-bucket, then selects objects at least seven days old. With `--apply` it
-deletes those keys. Local tests used a fake object store and confirmed dry
-run, both key layouts, unrelated-object protection, success counts, and
-propagation of a storage access failure. No scheduler was installed.
+The staging workflow runs at minute 7 UTC each hour once enabled. It pins
+the Neon staging branch endpoint and region before connecting and reuses
+the existing seven-day retention script. Its logs show the branch, mode and
+counts without credentials or filenames.
 
-An AWS Lambda job triggered by EventBridge Scheduler can run hourly without
-a workstation. Configure staging first.
+1. In Neon, open **tow-mapper-pro-staging → staging → Object storage →
+   Connect → Storage** and create a dedicated branch-scoped storage write key.
+2. In GitHub, open **Settings → Environments → New environment** and create
+   `neon-staging-cleanup`. Under **Deployment branches and tags**, choose
+   **Selected branches and tags** and allow `feature/tow-mapper-pro-ui`.
+   Add `main` only after approval. Under **Environment secrets**, add
+   `NEON_STAGING_STORAGE_ACCESS_KEY_ID` and
+   `NEON_STAGING_STORAGE_SECRET_ACCESS_KEY` from Neon. Under **Environment
+   variables**, set `NEON_STAGING_STORAGE_ENDPOINT` to
+   `https://br-delicate-truth-b9ptbns0.storage.c-7.eu-central-1.aws.neon.tech`.
+3. A feature-branch push runs credential-free tests with expired, current,
+   and unrelated object fixtures. GitHub requires both scheduled and
+   manually dispatched workflows to exist on the default branch. Keep
+   `main` as default.
+4. After approval and merge, open **Actions → Staging Neon export cleanup →
+   Run workflow** and choose **dry-run**. Record the exact keys of an expired
+   synthetic export, a current export, and an unrelated object. Age is based
+   on Neon LastModified, so allow seven days from upload. Verify dry run
+   leaves all three present. Run again with **apply**, then verify only the
+   expired key disappears. Save the run URLs and before/after bucket listings.
+5. To activate hourly staging cleanup, open **Settings → Secrets and
+   variables → Actions → Variables** and add repository variable
+   `ENABLE_STAGING_EXPORT_CLEANUP` with value `true`. Check two hourly runs.
+   Remove the variable or disable the workflow to stop hourly cleanup.
+   This workflow remains pinned to staging after merge.
 
-1. In a clean packaging directory, copy `cleanup_download_center.py` and
-   `download_center.py` from the approved feature commit. Install
-   `boto3>=1.36.0` into that directory and add `lambda_function.py` below.
-   Zip the directory contents at the archive root.
-
-   ```python
-   import sys
-   from unittest.mock import patch
-
-   from cleanup_download_center import main
-
-   def lambda_handler(event, context):
-       args = ["cleanup_download_center.py"]
-       if event.get("apply") is True:
-           args.append("--apply")
-       with patch.object(sys, "argv", args):
-           main()
-   ```
-
-2. In AWS Lambda, create a Python function using runtime 3.13, handler
-   `lambda_function.lambda_handler`, and an execution role that can write
-   CloudWatch logs. Upload the ZIP. Use a staging-specific function and set
-   a 120-second timeout. Use a dedicated branch-scoped write credential. AWS Lambda reserves the
-   standard AWS credential environment names, so store Neon settings under
-   custom names and map them within the handler.
-
-   In the handler, add `import os` and wrap the `main()` call with:
-
-   ```python
-   with patch.dict(os.environ, {
-       "AWS_ENDPOINT_URL_S3": os.environ["NEON_CLEANUP_ENDPOINT"],
-       "AWS_REGION": os.environ["NEON_CLEANUP_REGION"],
-       "AWS_ACCESS_KEY_ID": os.environ["NEON_CLEANUP_ACCESS_KEY_ID"],
-       "AWS_SECRET_ACCESS_KEY": os.environ["NEON_CLEANUP_SECRET_ACCESS_KEY"],
-   }):
-       main()
-   ```
-
-   Set these four `NEON_CLEANUP_*` variables in Lambda. Restrict access to
-   the function configuration and never print the variables.
-3. Run a manual Lambda test with `{"apply": false}`. Check CloudWatch for
-   `Dry run: eligible objects: N` and a successful invocation. Then create
-   an EventBridge schedule with expression `cron(7 * * * ? *)` in UTC,
-   flexible time window off, Lambda as the target, and JSON
-   `{"apply": true}`. Give the scheduler execution role permission to
-   invoke only this Lambda. Configure a delivery dead-letter queue and a
-   CloudWatch alarm on Lambda Errors. Monitor for a missing successful run
-   for two hours as well as errors.
-4. Observe two hourly invocations and record their timestamps and counts.
-   Leave a synthetic export in staging until its S3 LastModified is at
-   least seven days old. Before the next job, record its key from Neon
-   Console or a scoped S3 listing. After the job, verify the exact expired
-   key is absent or inaccessible, the log shows a deletion count, and an
-   unexpired export and an unrelated object remain. This verifies removal
-   from the branch's visible objects. It does not establish physical purge.
-5. After production approval, configure a separately named production job
-   with production-only secrets. Verify dry run against the intended
-   production branch before enabling apply.
-
-[AWS Lambda environment variables](https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html)
-· [EventBridge schedules](https://docs.aws.amazon.com/scheduler/latest/UserGuide/schedule-types.html)
+[GitHub Actions trigger rules](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows)
 
 ## Validation and limitations
 
