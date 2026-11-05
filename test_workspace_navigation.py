@@ -96,7 +96,7 @@ class WorkspaceTests(unittest.TestCase):
         self.button("Apply changes").click().run()
         self.app.text_input(key="pallets_export_filename").set_value("demo_pallets").run()
 
-        for section in ("Crosswalk Mapping", "UoM Conversion", "Valeo PDF → Excel", "Bosch Merger"):
+        for section in ("Crosswalk Mapping", "UoM Conversion", "Valeo PDF → Excel", "TecAlliance Merger"):
             self.navigate(section)
             if section == "Crosswalk Mapping":
                 self.unlock("fixture-pin")
@@ -154,7 +154,7 @@ class WorkspaceTests(unittest.TestCase):
             self.assertEqual(book.sheetnames, ["Merged"])
             return export["file_name"], list(book["Merged"].values)
 
-        self.app.session_state["tow_navigation_0"] = "Bosch Merger"
+        self.app.session_state["tow_navigation_0"] = "TecAlliance Merger"
         self.app.run()
         self.assertFalse(self.app.get("file_uploader"))
         start_authorized(self.app)
@@ -194,7 +194,7 @@ class WorkspaceTests(unittest.TestCase):
             self.app.checkbox(key="bosch_drop_invoice").check().run()
             self.app.checkbox(key="bosch_source_file").uncheck().run()
             self.navigate("Valeo PDF → Excel")
-            self.navigate("Bosch Merger")
+            self.navigate("TecAlliance Merger")
             self.assertEqual(export_rows(download)[1], [
                 invoice_headers, ("001234", 12.5, 2, datetime(2026, 9, 1)),
             ])

@@ -10,7 +10,7 @@ import download_center
 SECTIONS = {
     "Import Center": "↑",
     "Valeo PDF → Excel": "⇩",
-    "Bosch Merger": "▤",
+    "TecAlliance Merger": "▤",
     "Dashboard": "⌂",
     "Crosswalk Mapping": "⇄",
     "UoM Conversion": "▦",

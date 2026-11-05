@@ -60,7 +60,7 @@ if section == "Valeo PDF → Excel":
 
     render_valeo_converter()
     st.stop()
-if section == "Bosch Merger":
+if section == "TecAlliance Merger":
     from bosch_merger import render_bosch_merger
 
     render_bosch_merger()

@@ -119,8 +119,8 @@ def _clear_uploads():
 
 
 def render_bosch_merger():
-    st.title("Bosch Merger")
-    st.caption("Combine Bosch packing lists or invoices into one Excel workbook.")
+    st.title("TecAlliance Merger")
+    st.caption("Combine packing lists or invoices into one Excel workbook.")
 
     options = st.session_state.setdefault("bosch_options", {})
     modes = list(TARGETS)
