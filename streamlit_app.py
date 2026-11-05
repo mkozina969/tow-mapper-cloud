@@ -55,6 +55,11 @@ if not has_app_access(st):
     st.stop()
 
 section = render_shell()
+if section == "Valeo PDF → Excel":
+    from valeo_converter import render_valeo_converter
+
+    render_valeo_converter()
+    st.stop()
 if section == "Download Center":
     download_center.render_download_center(st)
     st.stop()

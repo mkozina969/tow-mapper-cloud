@@ -9,6 +9,7 @@ import download_center
 
 SECTIONS = {
     "Import Center": "↑",
+    "Valeo PDF → Excel": "⇩",
     "Dashboard": "⌂",
     "Crosswalk Mapping": "⇄",
     "UoM Conversion": "▦",

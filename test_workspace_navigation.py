@@ -61,6 +61,17 @@ class WorkspaceTests(unittest.TestCase):
             self.assertFalse(any(button.label in {"Add", "Save rule"} for button in self.app.button))
         self.factory.assert_not_called()
 
+    def test_valeo_section_opens_without_database_access(self):
+        self.app.session_state["tow_navigation_0"] = "Valeo PDF → Excel"
+        self.app.run()
+        self.assertFalse(self.app.get("file_uploader"))
+
+        start_authorized(self.app)
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.title[0].value, "Valeo PDF → Excel")
+        self.assertEqual(self.app.get("file_uploader")[0].label, "Upload one or more Valeo PDFs")
+        self.factory.assert_not_called()
+
     def test_import_round_trips_and_session_reset(self):
         self.app.session_state["tow_retained_upload"] = (
             "packing.csv", b"ProductNumber,Quantity,Pallet\nDEMO-1,24,PAL01\nDEMO-2,3,PAL02\n"
@@ -78,7 +89,7 @@ class WorkspaceTests(unittest.TestCase):
         self.button("Apply changes").click().run()
         self.app.text_input(key="pallets_export_filename").set_value("demo_pallets").run()
 
-        for section in ("Crosswalk Mapping", "UoM Conversion"):
+        for section in ("Crosswalk Mapping", "UoM Conversion", "Valeo PDF → Excel"):
             self.navigate(section)
             if section == "Crosswalk Mapping":
                 self.unlock("fixture-pin")
@@ -87,7 +98,8 @@ class WorkspaceTests(unittest.TestCase):
                 self.app.session_state["updates_df"] = pd.DataFrame(
                     [{"vendor_id": "DEMO", "supplier_id": "PENDING", "tow_code": "PENDING-TOW"}]
                 )
-            self.assertTrue(self.app.dataframe)
+            if section != "Valeo PDF → Excel":
+                self.assertTrue(self.app.dataframe)
             self.navigate("Import Center")
             self.assertTrue(self.app.session_state["mapped_ready"])
             self.assertEqual(self.app.session_state["tow_retained_upload"][0], "packing.csv")
