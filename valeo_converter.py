@@ -7,6 +7,7 @@ import re
 import pandas as pd
 import pdfplumber
 from pdfminer.pdfexceptions import PDFException
+from pdfplumber.utils.exceptions import MalformedPDFException, PdfminerException
 import streamlit as st
 
 
@@ -214,7 +215,7 @@ def render_valeo_converter():
         for upload in uploads:
             try:
                 invoice, packing = convert_pdf(upload.getvalue())
-            except (PDFException, ValueError):
+            except (PDFException, PdfminerException, MalformedPDFException, ValueError):
                 results.append((upload.name, None, None))
             else:
                 results.append((upload.name, invoice, packing))

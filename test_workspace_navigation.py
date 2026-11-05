@@ -69,7 +69,11 @@ class WorkspaceTests(unittest.TestCase):
         start_authorized(self.app)
         self.assertFalse(self.app.exception)
         self.assertEqual(self.app.title[0].value, "Valeo PDF → Excel")
-        self.assertEqual(self.app.get("file_uploader")[0].label, "Upload one or more Valeo PDFs")
+        uploader = self.app.get("file_uploader")[0]
+        self.assertEqual(uploader.label, "Upload one or more Valeo PDFs")
+        uploader.set_value(("broken.pdf", b"not a PDF", "application/pdf")).run()
+        self.assertFalse(self.app.exception)
+        self.assertIn("could not be read", self.app.error[0].value)
         self.factory.assert_not_called()
 
     def test_import_round_trips_and_session_reset(self):
