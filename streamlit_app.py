@@ -60,6 +60,11 @@ if section == "Valeo PDF → Excel":
 
     render_valeo_converter()
     st.stop()
+if section == "Bosch Merger":
+    from bosch_merger import render_bosch_merger
+
+    render_bosch_merger()
+    st.stop()
 if section == "Download Center":
     download_center.render_download_center(st)
     st.stop()

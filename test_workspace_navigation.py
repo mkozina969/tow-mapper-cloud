@@ -1,11 +1,14 @@
 """Regression checks for the feature-branch navigation and access boundaries."""
 
+from datetime import datetime
+from io import BytesIO
 import os
 from pathlib import Path
 import unittest
 from unittest.mock import patch
 
 import pandas as pd
+from openpyxl import Workbook, load_workbook
 from sqlalchemy import create_engine, text
 from sqlalchemy.pool import StaticPool
 import streamlit as st
@@ -93,7 +96,7 @@ class WorkspaceTests(unittest.TestCase):
         self.button("Apply changes").click().run()
         self.app.text_input(key="pallets_export_filename").set_value("demo_pallets").run()
 
-        for section in ("Crosswalk Mapping", "UoM Conversion", "Valeo PDF → Excel"):
+        for section in ("Crosswalk Mapping", "UoM Conversion", "Valeo PDF → Excel", "Bosch Merger"):
             self.navigate(section)
             if section == "Crosswalk Mapping":
                 self.unlock("fixture-pin")
@@ -102,7 +105,7 @@ class WorkspaceTests(unittest.TestCase):
                 self.app.session_state["updates_df"] = pd.DataFrame(
                     [{"vendor_id": "DEMO", "supplier_id": "PENDING", "tow_code": "PENDING-TOW"}]
                 )
-            if section != "Valeo PDF → Excel":
+            if section in ("Crosswalk Mapping", "UoM Conversion"):
                 self.assertTrue(self.app.dataframe)
             self.navigate("Import Center")
             self.assertTrue(self.app.session_state["mapped_ready"])
@@ -131,6 +134,77 @@ class WorkspaceTests(unittest.TestCase):
         self.navigate("UoM Conversion")
         self.button("Unlock")
         self.assertFalse(self.app.dataframe)
+
+    def test_bosch_modes_export_and_keep_their_own_session_state(self):
+        def workbook(headers, *rows):
+            book = Workbook()
+            book.active.append(["Cover sheet"])
+            sheet = book.create_sheet("Bosch data")
+            sheet.append(["Report"])
+            sheet.append(headers)
+            for row in rows:
+                sheet.append(row)
+            contents = BytesIO()
+            book.save(contents)
+            return contents.getvalue()
+
+        def export_rows(mock_download):
+            export = mock_download.call_args.kwargs
+            book = load_workbook(BytesIO(export["data"]))
+            self.assertEqual(book.sheetnames, ["Merged"])
+            return export["file_name"], list(book["Merged"].values)
+
+        self.app.session_state["tow_navigation_0"] = "Bosch Merger"
+        self.app.run()
+        self.assertFalse(self.app.get("file_uploader"))
+        start_authorized(self.app)
+        self.assertFalse(self.app.exception)
+        mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+        packing_headers = ("ProductNumber", "DeliveredQuantity", "PkgIdentNumber_2", "PkgIdentNumber_1")
+        packing_row = ("001234", 4, "0000456", "0000789")
+        packing = workbook(packing_headers, packing_row)
+        with patch.object(st, "download_button", wraps=st.download_button) as download:
+            self.app.get("file_uploader")[0].set_value(
+                [("packing-a.xlsx", packing, mime), ("packing-b.xlsx", packing, mime)]
+            ).run()
+            self.assertFalse(self.app.exception)
+            filename, rows = export_rows(download)
+            self.assertTrue(filename.startswith("bosch_packing_"))
+            self.assertEqual(rows, [
+                (*packing_headers, "Source_File"),
+                (*packing_row, "packing-a.xlsx"),
+                (*packing_row, "packing-b.xlsx"),
+            ])
+
+            self.app.radio(key="bosch_mode").set_value("Invoices").run()
+            invoice_headers = ("ProductNumber", "UnitPrice", "Quantity", "DesAdvRef_Date")
+            invoice = workbook(invoice_headers, ("001234", 12.5, 2, "2026-09-01"), ("001234", 7, None, "2026-09-02"))
+            self.app.get("file_uploader")[0].set_value(
+                [("invoice-001.xlsx", invoice, mime), ("damaged.xlsx", b"not a workbook", mime)]
+            ).run()
+            self.assertFalse(self.app.exception)
+            self.assertTrue(any("damaged.xlsx" in warning.value for warning in self.app.warning))
+            filename, rows = export_rows(download)
+            self.assertTrue(filename.startswith("bosch_invoices_"))
+            self.assertEqual(rows[0], (*invoice_headers, "Source_File"))
+            self.assertEqual(rows[1], ("001234", 12.5, 2, datetime(2026, 9, 1), "invoice-001"))
+            self.assertEqual(len(rows), 3)
+
+            self.app.checkbox(key="bosch_drop_invoice").check().run()
+            self.app.checkbox(key="bosch_source_file").uncheck().run()
+            self.navigate("Valeo PDF → Excel")
+            self.navigate("Bosch Merger")
+            self.assertEqual(export_rows(download)[1], [
+                invoice_headers, ("001234", 12.5, 2, datetime(2026, 9, 1)),
+            ])
+            self.button("Clear selected files").click().run()
+            self.assertFalse(self.app.get("download_button"))
+            self.assertNotIn("bosch_batch", self.app.session_state)
+
+        self.button("Logout").click().run()
+        self.assertNotIn("bosch_options", self.app.session_state)
+        self.factory.assert_not_called()
 
 
 if __name__ == "__main__":
