@@ -16,8 +16,6 @@ import download_center as dc
 
 
 APP = Path(__file__).with_name("streamlit_app.py")
-UPLOAD_KEY = "fixture-upload-key-12345678"
-DOWNLOAD_KEY = "fixture-download-key-12345678"
 DELETE_KEY = "fixture-delete-key-12345678"
 LEGACY = "exports/" + "a" * 32 + "/packing.prn"
 FLAT = "exports/invoice_20261104-103000_abcdefabcdef.xlsx"
@@ -68,6 +66,21 @@ class FakeStorage:
 
 
 class StorageTests(unittest.TestCase):
+    def test_shared_upload_callback_requires_current_app_access(self):
+        import streamlit as st
+
+        with patch.object(st, "session_state", {"share_finished_exports": True}), \
+                patch.object(st, "secrets", {"download_center": {"enabled": True}}), \
+                patch.object(dc, "has_app_access", return_value=True) as access, \
+                patch.object(dc, "client"), patch.object(dc, "save_export") as save, \
+                patch.object(st, "toast"):
+            callback = dc.export_callback("test.csv", b"synthetic", "text/csv")
+            callback()
+            save.assert_called_once()
+            access.return_value = False
+            callback()
+            save.assert_called_once()
+
     def setUp(self):
         self.storage = FakeStorage()
 
@@ -121,7 +134,7 @@ class DownloadPageTests(unittest.TestCase):
         self.storage = FakeStorage()
         self.app = AppTest.from_file(str(APP), default_timeout=30)
         self.app.secrets["download_center"] = {
-            "enabled": True, "upload_key": UPLOAD_KEY, "download_key": DOWNLOAD_KEY,
+            "enabled": True,
             "delete_key": DELETE_KEY, "endpoint": "https://synthetic.aws.neon.tech",
             "region": "eu-central-1", "access_key_id": "fake", "secret_access_key": "fake",
         }
@@ -143,16 +156,8 @@ class DownloadPageTests(unittest.TestCase):
         next(widget for widget in self.app.radio if widget.label == "Sections").set_value(label).run()
         self.assertFalse(self.app.exception)
 
-    def test_keys_are_separate_and_dashboard_metadata_is_protected(self):
-        self.assertEqual(self.storage.lists, 0)
-        self.assertFalse(self.app.dataframe)
-        self.unlock("Download access key", UPLOAD_KEY)
-        self.assertEqual(self.storage.lists, 0)
-        self.navigate("Dashboard")
-        self.assertFalse(self.app.dataframe)
-        self.assertEqual(self.storage.lists, 0)
-        next(button for button in self.app.button if "Download Center" in button.label).click().run()
-        self.unlock("Download access key", DOWNLOAD_KEY)
+    def test_app_sign_in_opens_downloads_and_reset_revokes_them(self):
+        self.assertFalse(any(field.label == "Download access key" for field in self.app.text_input))
         self.assertEqual(self.app.dataframe[0].value["Type"].tolist(), ["XLSX", "PRN"])
         self.assertEqual(self.storage.reads, 0)
         self.app.selectbox(key="tow_download_type").set_value("PRN").run()
@@ -183,11 +188,10 @@ class DownloadPageTests(unittest.TestCase):
         self.assertFalse(self.app.dataframe)
 
     def test_delete_requires_distinct_key_and_explicit_confirmation(self):
-        self.unlock("Download access key", DOWNLOAD_KEY)
         next(widget for widget in self.app.selectbox if widget.label == "Select an export").set_value(LEGACY).run()
         self.assertEqual(self.storage.reads, 0)
         self.assertFalse(any(button.label == "Delete file" for button in self.app.button))
-        self.unlock("Delete access key", DOWNLOAD_KEY)
+        self.unlock("Delete access key", self.app.secrets["APP_ACCESS_KEY"])
         self.assertFalse(self.storage.deleted)
         self.unlock("Delete access key", DELETE_KEY)
         self.assertTrue(next(button for button in self.app.button if button.label == "Delete file").disabled)

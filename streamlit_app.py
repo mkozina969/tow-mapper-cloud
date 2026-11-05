@@ -49,6 +49,7 @@ from mapper_ui import render_brand, render_dashboard, render_preview_section, re
 
 st.set_page_config(page_title="TOW Mapper Pro", layout="wide", initial_sidebar_state="expanded")
 if not has_app_access(st):
+    download_center.revoke_download_access(st)
     render_brand()
     render_access_form(st)
     st.stop()

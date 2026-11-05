@@ -9,6 +9,8 @@ from urllib.parse import urlparse
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from mapper_access import has_app_access
+
 BUCKET = "tow-mapper-exports"
 PREFIX = "exports/"
 RETENTION = timedelta(days=7)
@@ -68,22 +70,13 @@ def _enabled(st):
         return False
 
 
-def _access(st):
-    expected = st.secrets["download_center"].get("upload_key", "")
-    provided = st.session_state.get("shared_upload_key", "")
-    return (isinstance(expected, str) and len(expected) >= 24
-            and isinstance(provided, str)
-            and compare_digest(expected.encode(), provided.encode()))
-
-
 def export_callback(filename, data, mime):
     import streamlit as st
-    from mapper_access import has_app_access
-    if not _enabled(st) or not _access(st) or not st.session_state.get("share_finished_exports", False):
+    if not has_app_access(st) or not _enabled(st) or not st.session_state.get("share_finished_exports", False):
         return None
 
     def save():
-        if (not has_app_access(st) or not _enabled(st) or not _access(st)
+        if (not has_app_access(st) or not _enabled(st)
                 or not st.session_state.get("share_finished_exports", False)):
             return
         try:
@@ -97,15 +90,11 @@ def export_callback(filename, data, mime):
 
 def render_shared_storage():
     import streamlit as st
-    if not _enabled(st):
+    if not has_app_access(st) or not _enabled(st):
         return
     with st.expander("Save exports to Neon storage"):
-        st.text_input("Team upload key", type="password", key="shared_upload_key")
-        if not _access(st):
-            st.caption("Enter the team upload key to enable shared exports.")
-            return
         st.checkbox("Save a shared copy when I download a mapping export", key="share_finished_exports")
-        st.caption("Retrieve shared files from the private tow-mapper-exports bucket using your Neon storage access.")
+        st.caption("Retrieve shared files in Download Center.")
         if st.session_state.get("last_shared_export"):
             st.code(st.session_state["last_shared_export"], language=None)
 
@@ -155,21 +144,29 @@ def delete_export(storage, key, now=None):
     storage.delete_object(Bucket=BUCKET, Key=key)
 
 
-def _valid_key(config, name, supplied):
-    expected = config.get(name, "")
-    other_names = ("upload_key",) if name == "download_key" else ("upload_key", "download_key")
+def _valid_delete_key(st, config, supplied):
+    expected = config.get("delete_key", "")
     return (
         isinstance(expected, str)
         and len(expected) >= 24
-        and isinstance(supplied, str)
+        and expected != st.secrets.get("APP_ACCESS_KEY")
+        and all(expected != config.get(name) for name in ("upload_key", "download_key"))
         and compare_digest(expected.encode(), supplied.encode())
-        and all(expected != config.get(other) for other in other_names)
     )
 
 
 def _grant(st, state_key):
     grant = st.session_state.get(state_key)
     return grant if grant and not grant.is_set() else None
+
+
+def _download_grant(st):
+    if not has_app_access(st):
+        return None
+    grant = _grant(st, DOWNLOAD_GRANT)
+    if grant is None:
+        grant = st.session_state[DOWNLOAD_GRANT] = Event()
+    return grant
 
 
 def revoke_download_access(st):
@@ -194,7 +191,7 @@ def _read_client(config):
 
 
 def _metadata(st, config, refresh=False):
-    if not _grant(st, DOWNLOAD_GRANT):
+    if not _download_grant(st):
         raise PermissionError("Download access is required.")
     cached = st.session_state.get(FILE_LIST)
     if refresh or not cached or monotonic() >= cached[0]:
@@ -254,22 +251,21 @@ def _download(config, grant, key, listed_expiration):
     return data
 
 
-def _unlock(st, config, name, state_key, label):
-    with st.form(f"tow_unlock_{name}", clear_on_submit=True):
-        supplied = st.text_input(label, type="password")
+def _unlock_delete(st, config):
+    with st.form("tow_unlock_delete_key", clear_on_submit=True):
+        supplied = st.text_input("Delete access key", type="password")
         submitted = st.form_submit_button("Unlock", type="primary")
     if submitted:
-        if _valid_key(config, name, supplied):
-            st.session_state[state_key] = Event()
+        if has_app_access(st) and _valid_delete_key(st, config, supplied):
+            st.session_state[DELETE_GRANT] = Event()
             st.rerun()
         st.error("The access key was not accepted.")
 
 
 def render_recent_exports(st):
-    st.markdown("#### Recent stored exports")
-    if not _enabled(st) or not _grant(st, DOWNLOAD_GRANT):
-        st.caption("Unlock Download Center to see shared exports.")
+    if not has_app_access(st) or not _enabled(st):
         return
+    st.markdown("#### Recent stored exports")
     try:
         rows = _rows(_metadata(st, st.secrets["download_center"])[:5])
         if rows:
@@ -281,19 +277,15 @@ def render_recent_exports(st):
 
 
 def render_download_center(st):
+    if not has_app_access(st):
+        return
     st.title("Download Center")
     st.caption("Retrieve finished exports for NAV. Files are available for seven days.")
     if not _enabled(st):
         st.info("Shared storage is disabled for this application.")
         return
     config = st.secrets["download_center"]
-    if not _grant(st, DOWNLOAD_GRANT):
-        download_key = config.get("download_key")
-        if not isinstance(download_key, str) or len(download_key) < 24:
-            st.info("Download access has not been configured.")
-            return
-        _unlock(st, config, "download_key", DOWNLOAD_GRANT, "Download access key")
-        return
+    grant = _download_grant(st)
 
     filters, controls = st.columns([3, 1])
     with filters:
@@ -301,7 +293,6 @@ def render_download_center(st):
     with controls:
         file_type = st.selectbox("File type", ["All", *MIME_TYPES], key="tow_download_type")
     refresh = st.button("Refresh file list")
-    st.button("Lock Download Center", on_click=revoke_download_access, args=(st,))
     try:
         objects = filter_exports(_metadata(st, config, refresh), search, file_type)
     except Exception:
@@ -330,7 +321,7 @@ def render_download_center(st):
     name = original_filename(key)
     if 0 < obj["Size"] <= MAX_BYTES:
         st.download_button(
-            "Download file", data=partial(_download, dict(config), _grant(st, DOWNLOAD_GRANT), key, obj["LastModified"] + RETENTION),
+            "Download file", data=partial(_download, dict(config), grant, key, obj["LastModified"] + RETENTION),
             file_name=name, mime=MIME_TYPES[selected_row["Type"]], on_click="ignore", type="primary",
         )
     else:
@@ -340,7 +331,7 @@ def render_download_center(st):
     if isinstance(delete_key, str) and len(delete_key) >= 24:
         with st.expander("Delete export"):
             if not _grant(st, DELETE_GRANT):
-                _unlock(st, config, "delete_key", DELETE_GRANT, "Delete access key")
+                _unlock_delete(st, config)
             else:
                 st.caption(f"Selected file: {selected_row['File name']}")
                 confirmed = st.checkbox("Confirm deletion of this file", key=f"tow_confirm_delete_{key}")

@@ -1,8 +1,8 @@
 # Separate TOW Mapper Pro production launch
 
-Deploy `mkozina969/tow-mapper-cloud`, branch `feature/tow-mapper-pro-ui`,
-entry point `streamlit_app.py`. Verify the feature branch tip matches the
-approved access-gate commit before deploying. Use Python 3.13 and request
+Deploy `mkozina969/tow-mapper-cloud`, branch `production/tow-mapper-pro`,
+entry point `streamlit_app.py`. Verify the branch tip matches the approved
+release before deploying. Use Python 3.13 and request
 the subdomain `tow-mapper-pro`. Confirm the revision and URL at launch.
 Deploying from this public repository makes the app public by default.
 Stop before pressing Deploy until publication is explicitly approved.
@@ -12,8 +12,7 @@ below. Use the connection string for the database that contains the existing
 crosswalk on `towmapper-aws → production`. Use a dedicated read-only login
 where one already exists for the initial verification. A read-only login
 supports mapping and searches. Admin writes require a separately authorized
-login with appropriate privileges. Use a new Admin PIN and distinct,
-random upload and download keys of at least 24 characters. Create dedicated
+login with appropriate privileges. Use a new Admin PIN. Create dedicated
 production storage credentials in Neon, one storage write and one storage
 read, scoped to the production branch. Paste values directly into Streamlit.
 
@@ -30,12 +29,11 @@ access_key_id = "PRO_STORAGE_WRITE_ACCESS_KEY_ID"
 secret_access_key = "PRO_STORAGE_WRITE_SECRET"
 read_access_key_id = "PRO_STORAGE_READ_ACCESS_KEY_ID"
 read_secret_access_key = "PRO_STORAGE_READ_SECRET"
-upload_key = "NEW_PRO_UPLOAD_KEY"
-download_key = "NEW_PRO_DOWNLOAD_KEY"
 ```
 
 Generate the application key in a password manager with at least 32 random
-characters. Use a different value for each access layer. Enter the key only
+characters. It grants app access, shared uploads and downloads after sign-in.
+Keep the Admin PIN and any optional deletion key distinct. Enter the app key only
 in the new app's Streamlit Secrets. The workspace stays locked if the key is
 missing or too short. Five incorrect attempts pause submissions in that
 browser session for 30 seconds. Logout and Reset session clear workspace
@@ -57,8 +55,8 @@ Use an approved synthetic invoice
 with known supplier and GLOBAL matches and an existing UoM rule. Compare the
 Excel, Pallets PRN, Regular PRN, and Portal CSV output to the staging baseline.
 Verify the Admin PIN gate without submitting changes. Verify that Download
-Center hides metadata when locked, rejects the upload key, opens with the
-download key, and relocks after session reset. Use a synthetic shared copy
+Center opens after app sign-in and its data is inaccessible after logout or
+session reset. Use a synthetic shared copy
 for storage verification. Verify expiry with an already aged synthetic
 fixture where available and record any checks that remain pending.
 

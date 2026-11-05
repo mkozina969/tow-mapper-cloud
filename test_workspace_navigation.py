@@ -35,7 +35,7 @@ class WorkspaceTests(unittest.TestCase):
         self.factory = self.enterContext(patch("sqlalchemy.create_engine", return_value=self.engine))
         self.enterContext(patch("streamlit_sortables.sort_items", side_effect=lambda columns, **kwargs: columns))
         self.app = AppTest.from_file(str(APP), default_timeout=30)
-        self.app.secrets["download_center"] = {"enabled": True, "upload_key": "fixture-upload-key-123456789"}
+        self.app.secrets["download_center"] = {"enabled": True}
 
     def navigate(self, name):
         next(radio for radio in self.app.radio if radio.label == "Sections").set_value(name).run()
@@ -67,7 +67,7 @@ class WorkspaceTests(unittest.TestCase):
         )
         start_authorized(self.app)
         self.assertEqual(next(radio for radio in self.app.radio if radio.label == "Sections").value, "Import Center")
-        self.app.text_input(key="shared_upload_key").set_value("fixture-upload-key-123456789").run()
+        self.assertFalse(any(field.label == "Team upload key" for field in self.app.text_input))
         self.app.checkbox(key="share_finished_exports").check().run()
         self.app.selectbox(key="vendor_select").set_value("DEMO").run()
         self.app.selectbox(key="quantity_column").set_value("Quantity").run()

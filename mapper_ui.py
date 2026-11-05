@@ -28,7 +28,7 @@ WORKSPACE_KEYS = (
     "export_invoice_label", "export_item_label", "export_location", "export_manual_date",
     "export_date_column", "export_date_format", "export_text_columns",
     "portal_document", "portal_blank", "custom_export_filename", "pallets_export_filename",
-    "regular_export_filename", "portal_export_filename", "shared_upload_key",
+    "regular_export_filename", "portal_export_filename",
     "share_finished_exports",
 )
 
